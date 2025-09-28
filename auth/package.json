@@ -1,30 +1,34 @@
 {
   "name": "auth",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Authentication microservice for the Capstone project.",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "start": "node server.js"
   },
-  "keywords": [],
+  "keywords": [
+    "auth",
+    "microservice",
+    "express"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
-    "@prisma/client": "^6.16.2",
-    "bcryptjs": "^3.0.2",
+    "@prisma/client": "^5.14.0",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.2",
-    "express": "^5.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
     "express-async-handler": "^1.2.0",
-    "express-rate-limit": "^8.1.0",
-    "express-validator": "^7.2.1",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.16.3",
-    "zod": "^4.1.11"
+    "pg": "^8.11.5",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10",
-    "prisma": "^6.16.2"
+    "nodemon": "^3.1.0",
+    "prisma": "^5.14.0"
   }
 }
+
