@@ -1,0 +1,137 @@
+{
+  "entityDefinitions": [
+    {
+      "entity": "User",
+      "microserviceOwner": "Auth Service",
+      "database": "PostgreSQL",
+      "attributes": {
+        "user_id": "PK",
+        "email": "String (Unique)",
+        "password_hash": "String",
+        "role": "ENUM (SUPPLIER or VENDOR)",
+        "is_verified": "Boolean (KYC status)",
+        "reputation_score": "Number (from 1-5)"
+      }
+    },
+    {
+      "entity": "VendorProfile",
+      "microserviceOwner": "Auth Service",
+      "database": "PostgreSQL",
+      "attributes": {
+        "user_id": "FK (to User.user_id)",
+        "first_name": "String",
+        "last_name": "String",
+        "address": "String",
+        "pincode": "String (Crucial for Community)",
+        "phone_number": "String"
+      }
+    },
+    {
+      "entity": "SupplierProfile",
+      "microserviceOwner": "Auth Service",
+      "database": "PostgreSQL",
+      "attributes": {
+        "user_id": "FK (to User.user_id)",
+        "company_name": "String",
+        "warehouse_address": "String",
+        "pincode": "String",
+        "contact_person": "String",
+        "GST_ID": "String"
+      }
+    },
+    {
+      "entity": "Order",
+      "microserviceOwner": "Order Service",
+      "database": "PostgreSQL",
+      "attributes": {
+        "order_id": "PK",
+        "vendor_id": "FK (to User.user_id)",
+        "supplier_id": "FK (to User.user_id)",
+        "status": "ENUM (PENDING, PLACED, SHIPPED, DELIVERED)",
+        "total_amount": "Decimal",
+        "placed_date": "DateTime",
+        "delivery_address": "String"
+      }
+    },
+    {
+      "entity": "Transaction",
+      "microserviceOwner": "Order Service",
+      "database": "PostgreSQL",
+      "attributes": {
+        "transaction_id": "PK",
+        "order_id": "FK (to Order.order_id)",
+        "type": "ENUM (ESCROW_HOLD, PAYMENT_CAPTURE, REFUND)",
+        "amount": "Decimal",
+        "status": "String",
+        "payment_gateway_ref": "String (Stripe/Razorpay ID)",
+        "blockchain_tx_hash": "String (for audit trail)"
+      }
+    }
+  ]
+}
+
+{
+  "entityDefinitions": [
+    {
+      "entity": "Product",
+      "microserviceOwner": "Product Service",
+      "database": "MongoDB",
+      "attributes": {
+        "product_id": "PK (String)",
+        "supplier_id": "FK (to User.user_id)",
+        "name": "String",
+        "description": "String",
+        "category": "String (e.g., 'Vegetables', 'Paper Goods')",
+        "unit_price": "Decimal",
+        "stock_quantity": "Number",
+        "images": "Array of Strings (URLs)",
+        "trace_token_id": "String (from BC Service)"
+      }
+    },
+    {
+      "entity": "CartItem",
+      "microserviceOwner": "Order Service",
+      "database": "Redis Cache",
+      "attributes": {
+        "user_id": "Key (String)",
+        "items": "Array of Objects",
+        "items[].product_id": "String",
+        "items[].quantity": "Number",
+        "items[].unit_price_snapshot": "Decimal (Price at time of addition)"
+      },
+      "notes": "Stored in Redis Hash structure, with the user_id as the key for ultra-fast retrieval."
+    },
+    {
+      "entity": "Community",
+      "microserviceOwner": "Auth/Product Service",
+      "database": "MongoDB",
+      "attributes": {
+        "pincode": "PK/Key (String)",
+        "vendors": "Array of Strings (vendor_ids)",
+        "bulk_order_history": "Array of Objects (metadata on past group orders)",
+        "admin_contact_id": "String (Optional FK to User)"
+      },
+      "notes": "Owned collaboratively, but resides in MongoDB for flexibility and scalable lookups based on geographic area (pincode)."
+    }
+  ]
+}
+
+{
+  "entityDefinitions": [
+    {
+      "entity": "Community",
+      "microserviceOwner": "Auth/Product Service (Collaborative)",
+      "database": "MongoDB",
+      "attributes": {
+        "pincode": "PK/Key (String)",
+        "vendor_count": "Number (Total registered vendors)",
+        "recent_bulk_order": "Object",
+        "recent_bulk_order.date": "DateTime",
+        "recent_bulk_order.total_value": "Decimal",
+        "recent_bulk_order.total_savings": "Decimal",
+        "top_requested_items": "Array of Strings (AI-driven product names/IDs)"
+      },
+      "notes": "This document stores aggregated data for a geographic community (pincode), residing in MongoDB for fast, flexible retrieval by the Next.js frontend."
+    }
+  ]
+}
