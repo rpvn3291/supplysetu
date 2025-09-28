@@ -1,0 +1,65 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // This reads the URL from your .env file
+}
+
+// ENUM for user roles
+enum Role {
+  SUPPLIER
+  VENDOR
+}
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  passwordHash    String
+  role            Role
+  isVerified      Boolean   @default(false)
+  reputationScore Float     @default(3.0) // Start with a neutral score
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relationships
+  vendorProfile   VendorProfile?
+  supplierProfile SupplierProfile?
+
+  @@map("users") // Maps the model name to the 'users' table in the database
+}
+
+model VendorProfile {
+  id          String @id @default(uuid())
+  firstName   String
+  lastName    String
+  address     String
+  pincode     String
+  phoneNumber String
+
+  // Foreign Key relationship to the User model
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique // Each user can only have one vendor profile
+
+  @@map("vendor_profiles")
+}
+
+model SupplierProfile {
+  id              String @id @default(uuid())
+  companyName     String
+  warehouseAddress String
+  pincode         String
+  contactPerson   String
+  gstId           String   @map("GST_ID")
+
+  // Foreign Key relationship to the User model
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique // Each user can only have one supplier profile
+
+  @@map("supplier_profiles")
+}
+
