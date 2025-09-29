@@ -1,0 +1,46 @@
+// This is your Prisma schema file.
+// It defines the structure of your database tables for the Order service.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// The Order model represents a single order placed by a vendor.
+model Order {
+  id          String      @id @default(uuid())
+  vendorId    String      // Stores the ID of the user (from the Auth service) who placed the order.
+  totalPrice  Float       // The calculated total price of all items in the order.
+  status      OrderStatus @default(PENDING) // The current status of the order.
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Establishes a one-to-many relationship: one Order has many OrderItems.
+  orderItems  OrderItem[]
+}
+
+// The OrderItem model represents a single product line within an Order.
+model OrderItem {
+  id        String @id @default(uuid())
+  orderId   String
+  productId String // Stores the ID of the product (from the Product service).
+  quantity  Int    // How many units of this product were ordered.
+  price     Float  // The price of the product at the time the order was placed.
+
+  // Establishes the other side of the relationship: an OrderItem belongs to one Order.
+  order     Order  @relation(fields: [orderId], references: [id])
+}
+
+// Defines the possible states an order can be in.
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
