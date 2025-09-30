@@ -2,9 +2,12 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-// No longer need to import connectDB
 const orderRoutes = require('./routes/orderRoutes');
 const { errorHandler } = require('./middleware/errorHandler');
+const { connectToRabbitMQ } = require('./amqp/connection'); // Import the connection function
+
+// Connect to RabbitMQ as soon as the service starts
+connectToRabbitMQ();
 
 const app = express();
 const PORT = process.env.PORT || 3003;

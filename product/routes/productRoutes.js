@@ -6,26 +6,26 @@ const {
   getProductById,
   updateProduct,
   deleteProduct,
-  getMyProducts, // <-- Make sure to import this new function
+  getMyProducts,
+  getProductsBySupplier, // Import the new function
 } = require('../controllers/productController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { isSupplier } = require('../middleware/permissionMiddleware');
 
 const router = express.Router();
 
-// --- CORRECTED ROUTE ORDER ---
+// --- Routes ---
 
-// General routes for all products
 router.route('/')
   .get(getAllProducts)
   .post(authMiddleware, isSupplier, createProduct);
 
-// Specific route for a supplier's own products
-// This MUST be defined BEFORE the dynamic '/:id' route below
 router.get('/myproducts', authMiddleware, isSupplier, getMyProducts);
 
-// Dynamic route for a single product by its ID
-// This now correctly comes AFTER the '/myproducts' route
+// NEW: An internal-facing route for other services to use.
+// It will be protected by the same auth middleware.
+router.get('/supplier', authMiddleware, isSupplier, getProductsBySupplier);
+
 router.route('/:id')
   .get(getProductById)
   .put(authMiddleware, isSupplier, updateProduct)

@@ -2,8 +2,6 @@
 const asyncHandler = require('express-async-handler');
 const Product = require('../models/productModel');
 
-// ... (keep createProduct, getAllProducts, getProductById functions as they are) ...
-
 const createProduct = asyncHandler(async (req, res) => {
   const supplierId = req.user.id;
   const productData = { ...req.body, supplierId };
@@ -57,26 +55,33 @@ const deleteProduct = asyncHandler(async (req, res) => {
   res.status(200).json({ message: 'Product removed' });
 });
 
-
-// --- NEW FUNCTION TO ADD ---
-/**
- * @desc    Fetch products for the logged-in supplier
- * @route   GET /api/products/myproducts
- * @access  Private/Supplier
- */
 const getMyProducts = asyncHandler(async (req, res) => {
   const products = await Product.find({ supplierId: req.user.id });
   res.status(200).json(products);
 });
 
+// --- THIS IS THE NEW FUNCTION ---
+/**
+ * @desc    Get all products for a specific supplier (for internal service communication)
+ * @route   GET /api/products/supplier
+ * @access  Private/Supplier
+ */
+const getProductsBySupplier = asyncHandler(async (req, res) => {
+  // This endpoint is designed to be called by other services.
+  // It uses the supplier ID from the token to find their products.
+  const products = await Product.find({ supplierId: req.user.id });
+  res.status(200).json(products);
+});
 
-// --- UPDATE THE EXPORTS AT THE BOTTOM ---
+
+// --- UPDATED EXPORTS ---
 module.exports = {
   createProduct,
   getAllProducts,
   getProductById,
   updateProduct,
   deleteProduct,
-  getMyProducts, // <-- Add the new function here
+  getMyProducts,
+  getProductsBySupplier, // <-- The new function is now exported
 };
 

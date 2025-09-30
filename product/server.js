@@ -3,10 +3,14 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');
-const productRoutes = require('./routes/productRoutes'); // Make sure this is imported
+const productRoutes = require('./routes/productRoutes');
+const { errorHandler } = require('./middleware/errorHandler');
+const { connectAndConsume } = require('./amqp/orderConsumer'); // Import the consumer
 
-// Connect to the database
+// Connect to MongoDB
 connectDB();
+// Connect to RabbitMQ and start listening for messages
+connectAndConsume();
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -15,13 +19,11 @@ const PORT = process.env.PORT || 3002;
 app.use(cors());
 app.use(express.json());
 
-// Basic Route for testing
-app.get('/', (req, res) => {
-    res.send('Product service is running...');
-});
-
-// Use the product routes - THIS IS THE CRUCIAL LINE
+// API Routes
 app.use('/api/products', productRoutes);
+
+// Centralized Error Handler
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Product service running on port ${PORT}`);
