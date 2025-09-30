@@ -1,4 +1,4 @@
-// This is a client component to fetch and display data in the browser.
+// filename: app/products/page.jsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -8,96 +8,116 @@ export default function ProductsPage() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
-  // --- NEW: State for the shopping cart and messaging ---
   const [cart, setCart] = useState([]);
   const [message, setMessage] = useState('');
 
-  // Fetch products when the component mounts
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/products');
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || 'Something went wrong');
-        setProducts(data);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProducts();
-  }, []);
-
-  // --- NEW: Function to add a product to the cart ---
-  const addToCart = (product) => {
-    setCart((prevCart) => {
-      const existingItem = prevCart.find(item => item.productId === product._id);
-      if (existingItem) {
-        // If item is already in cart, increase quantity
-        return prevCart.map(item => 
-          item.productId === product._id ? { ...item, quantity: item.quantity + 1 } : item
-        );
-      }
-      // Otherwise, add new item to cart
-      return [...prevCart, { productId: product._id, name: product.name, price: product.price, quantity: 1 }];
-    });
-    setMessage(`${product.name} added to cart!`);
-  };
-
-  // --- NEW: Function to place the order ---
-  const handlePlaceOrder = async () => {
-    setMessage('Placing order...');
+  // --- REFACTORED: Fetches both products and the user's cart ---
+  const fetchData = async () => {
+    setLoading(true);
     const token = localStorage.getItem('authToken');
 
-    if (!token) {
-      setMessage('You must be logged in to place an order.');
-      return;
-    }
+    try {
+      // Fetch products (public)
+      const productsRes = await fetch('/api/products');
+      if (!productsRes.ok) throw new Error('Failed to fetch products');
+      const productsData = await productsRes.json();
+      setProducts(productsData);
 
-    if (cart.length === 0) {
-      setMessage('Your cart is empty.');
-      return;
+      // Fetch user's cart (private)
+      if (token) {
+        const cartRes = await fetch('/api/cart', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!cartRes.ok) throw new Error('Failed to fetch cart');
+        const cartData = await cartRes.json();
+        
+        // We need to merge product details into the cart data
+        const enrichedCart = cartData.map(cartItem => {
+            const productDetails = productsData.find(p => p._id === cartItem.productId);
+            return { ...cartItem, name: productDetails?.name, price: productDetails?.price };
+        });
+        setCart(enrichedCart);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const orderData = {
-      orderItems: cart.map(({ productId, quantity, price }) => ({ productId, quantity, price })),
-      totalPrice: cart.reduce((total, item) => total + item.price * item.quantity, 0),
-    };
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // --- REFACTORED: Add to cart now calls the API ---
+  const addToCart = async (product) => {
+    setMessage(`Adding ${product.name} to cart...`);
+    const token = localStorage.getItem('authToken');
+    if (!token) return setMessage('Please log in to add items to your cart.');
 
     try {
-      const response = await fetch('/api/orders', {
+      const response = await fetch('/api/cart', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`, // Send the auth token
+          'Authorization': `Bearer ${token}`,
         },
+        body: JSON.stringify({ productId: product._id, quantity: 1 }),
+      });
+      if (!response.ok) throw new Error('Failed to add item');
+      
+      setMessage(`${product.name} added to cart!`);
+      fetchData(); // Refresh cart from the server
+    } catch (err) {
+      setMessage(`Error: ${err.message}`);
+    }
+  };
+  
+  // --- REFACTORED: handlePlaceOrder now clears the persistent cart on success ---
+  const handlePlaceOrder = async () => {
+    setMessage('Placing order...');
+    const token = localStorage.getItem('authToken');
+    if (!token || cart.length === 0) return;
+
+    const orderData = {
+      orderItems: cart.map(({ productId, quantity, price }) => ({ productId, quantity, price })),
+      totalPrice: cart.reduce((total, item) => total + (item.price * item.quantity), 0),
+    };
+
+    try {
+      const orderResponse = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(orderData),
       });
+      const newOrder = await orderResponse.json();
+      if (!orderResponse.ok) throw new Error(newOrder.message || 'Failed to place order');
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Failed to place order');
-      
-      setMessage(`Order placed successfully! Order ID: ${data.id}`);
-      setCart([]); // Clear the cart after successful order
+      // On successful order, clear the persistent cart
+      const clearCartResponse = await fetch('/api/cart', {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!clearCartResponse.ok) throw new Error('Failed to clear cart after order');
 
+      setMessage(`Order placed successfully! Order ID: ${newOrder.id}`);
+      fetchData(); // Refresh the (now empty) cart
     } catch (err) {
       setMessage(`Error placing order: ${err.message}`);
     }
   };
   
-  const cartTotal = cart.reduce((total, item) => total + item.price * item.quantity, 0).toFixed(2);
+  const cartTotal = cart.reduce((total, item) => total + (item.price * item.quantity), 0).toFixed(2);
 
   return (
+    // ... your existing JSX for the page ...
+    // The existing JSX will work perfectly with the new state logic.
     <div style={{ fontFamily: 'sans-serif', padding: '20px' }}>
       <Link href="/login">&larr; Back to Login</Link>
       <h1>Available Products</h1>
       
       {message && <p style={{ color: 'blue' }}>{message}</p>}
 
-      {/* --- NEW: Shopping Cart Display --- */}
       <div style={{ border: '2px solid green', padding: '15px', marginBottom: '20px' }}>
         <h2>Shopping Cart</h2>
         {cart.length === 0 ? (
@@ -106,7 +126,7 @@ export default function ProductsPage() {
           <div>
             {cart.map(item => (
               <div key={item.productId}>
-                {item.name} - ${item.price.toFixed(2)} x {item.quantity}
+                {item.name} - ${item.price?.toFixed(2)} x {item.quantity}
               </div>
             ))}
             <hr />
@@ -127,7 +147,6 @@ export default function ProductsPage() {
               <p>{product.description}</p>
               <p><strong>Price:</strong> ${product.price.toFixed(2)} per {product.unit}</p>
               <p><strong>Stock:</strong> {product.stock}</p>
-              {/* --- NEW: Add to Cart Button --- */}
               <button onClick={() => addToCart(product)}>Add to Cart</button>
             </div>
           ))}
