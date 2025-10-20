@@ -1,5 +1,4 @@
-// This is your Prisma schema file.
-// It defines the structure of your database tables for the Order service.
+// This is your Prisma schema file for the Order service
 
 generator client {
   provider = "prisma-client-js"
@@ -10,32 +9,37 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// The Order model represents a single order placed by a vendor.
 model Order {
-  id          String      @id @default(uuid())
-  vendorId    String      // Stores the ID of the user (from the Auth service) who placed the order.
-  totalPrice  Float       // The calculated total price of all items in the order.
-  status      OrderStatus @default(PENDING) // The current status of the order.
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id                    String      @id @default(uuid())
+  vendorId              String      // The ID of the user (vendor) who placed the order
+  totalPrice            Float
+  status                OrderStatus @default(PENDING)
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  orderItems            OrderItem[]
 
-  // Establishes a one-to-many relationship: one Order has many OrderItems.
-  orderItems  OrderItem[]
+  // --- NEW FIELDS for Metrics, ML, and Logistics ---
+  supplierId            String      // Crucial link to the supplier being ordered from
+  deliveryTime          DateTime?   // The actual time of delivery (optional)
+  estimatedDeliveryTime DateTime?   // The promised delivery time (optional)
+  vendorLocationLat     Float       // Denormalized vendor latitude at time of order
+  vendorLocationLon     Float       // Denormalized vendor longitude at time of order
+  weatherAtOrder        Json        // Stores weather snapshot (e.g., { "temp": 28, "rain": false })
+  cancellationReason    String?     // Optional reason for cancellation
 }
 
-// The OrderItem model represents a single product line within an Order.
 model OrderItem {
-  id        String @id @default(uuid())
-  orderId   String
-  productId String // Stores the ID of the product (from the Product service).
-  quantity  Int    // How many units of this product were ordered.
-  price     Float  // The price of the product at the time the order was placed.
+  id            String @id @default(uuid())
+  orderId       String
+  productId     String // The ID of the product from the Product service
+  quantity      Int
+  price         Float  // The price of the product at the time of order
+  order         Order  @relation(fields: [orderId], references: [id])
 
-  // Establishes the other side of the relationship: an OrderItem belongs to one Order.
-  order     Order  @relation(fields: [orderId], references: [id])
+  // --- NEW FIELD for Metrics ---
+  unitOfMeasure String // Saves the unit, e.g., 'kg', 'pack'
 }
 
-// Defines the possible states an order can be in.
 enum OrderStatus {
   PENDING
   CONFIRMED
@@ -43,4 +47,3 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
 }
-

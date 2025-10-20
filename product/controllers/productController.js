@@ -3,15 +3,25 @@ const asyncHandler = require('express-async-handler');
 const Product = require('../models/productModel');
 
 const createProduct = asyncHandler(async (req, res) => {
+  // The supplierId is still from the token, but the rest of the data
+  // including denormalized fields, will come from the request body.
   const supplierId = req.user.id;
   const productData = { ...req.body, supplierId };
+
   const product = await Product.create(productData);
   res.status(201).json(product);
 });
 
+
+// --- All other functions remain unchanged ---
 const getAllProducts = asyncHandler(async (req, res) => {
-  const products = await Product.find({});
-  res.status(200).json(products);
+  const pageSize = 10;
+  const page = Number(req.query.page) || 1;
+  const keyword = req.query.search ? { name: { $regex: req.query.search, $options: 'i' } } : {};
+  const sortByName = { name: 1 };
+  const count = await Product.countDocuments({ ...keyword });
+  const products = await Product.find({ ...keyword }).sort(sortByName).limit(pageSize).skip(pageSize * (page - 1));
+  res.status(200).json({ products, page, pages: Math.ceil(count / pageSize) });
 });
 
 const getProductById = asyncHandler(async (req, res) => {

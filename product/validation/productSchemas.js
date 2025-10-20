@@ -1,33 +1,40 @@
 // filename: validation/productSchemas.js
-const { z } = require('zod');
+import { z } from 'zod';
 
-// Schema for creating a new product. All fields are required.
 const createProductSchema = z.object({
   body: z.object({
-    name: z.string({ required_error: 'Name is required' }).min(3, 'Name must be at least 3 characters long'),
-    description: z.string({ required_error: 'Description is required' }).min(10, 'Description must be at least 10 characters long'),
-    price: z.number({ required_error: 'Price is required' }).positive('Price must be a positive number'),
-    category: z.string({ required_error: 'Category is required' }),
-    unit: z.string({ required_error: 'Unit is required' }),
-    stock: z.number({ required_error: 'Stock is required' }).int().nonnegative('Stock cannot be negative'),
-    imageUrl: z.string().url('Image URL must be a valid URL').optional(),
+    name: z.string().min(3),
+    description: z.string().min(10),
+    price: z.number().positive(),
+    category: z.enum(['Vegetables', 'Fruits', 'Dairy', 'Bakery', 'Spices', 'Groceries', 'Disposables', 'Other']),
+    unit: z.string(),
+    stock: z.number().int().nonnegative(),
+    imageUrl: z.string().url().optional(),
+    
+    // --- NEW REQUIRED FIELDS ---
+    supplierName: z.string(),
+    supplierLocationLat: z.number(),
+    supplierLocationLon: z.number(),
+    isVerified: z.boolean(),
+    // qualityRating and unitConversionFactor have defaults, so they are not required from the client
   }),
 });
 
-// Schema for updating a product. All fields are optional.
+// Update schema can remain as it is, assuming these fields are not updatable this way
 const updateProductSchema = z.object({
   body: z.object({
-    name: z.string().min(3, 'Name must be at least 3 characters long').optional(),
-    description: z.string().min(10, 'Description must be at least 10 characters long').optional(),
-    price: z.number().positive('Price must be a positive number').optional(),
-    category: z.string().optional(),
+    name: z.string().min(3).optional(),
+    description: z.string().min(10).optional(),
+    price: z.number().positive().optional(),
+    category: z.enum(['Vegetables', 'Fruits', 'Dairy', 'Bakery', 'Spices', 'Groceries', 'Disposables', 'Other']).optional(),
     unit: z.string().optional(),
-    stock: z.number().int().nonnegative('Stock cannot be negative').optional(),
-    imageUrl: z.string().url('Image URL must be a valid URL').optional(),
+    stock: z.number().int().nonnegative().optional(),
+    imageUrl: z.string().url().optional(),
   }),
 });
 
-module.exports = {
+export {
   createProductSchema,
   updateProductSchema,
 };
+

@@ -1,7 +1,10 @@
-const { PrismaClient } = require('@prisma/client');
-const asyncHandler = require('express-async-handler');
+// filename: controllers/orderController.js
+import { PrismaClient } from '@prisma/client';
+import asyncHandler from 'express-async-handler';
+import { publishToQueue } from '../amqp/connection.js'; // For publishing events
+import fetch from 'node-fetch'; // For inter-service communication
+
 const prisma = new PrismaClient();
-const { publishToQueue } = require('../amqp/connection'); // Import the publisher
 
 /**
  * @desc    Create a new order
@@ -9,27 +12,41 @@ const { publishToQueue } = require('../amqp/connection'); // Import the publishe
  * @access  Private/Vendor
  */
 const createOrder = asyncHandler(async (req, res) => {
-  const { orderItems, totalPrice } = req.body;
+  // Destructure all the new fields from the request body
+  const { 
+    orderItems, 
+    totalPrice, 
+    supplierId, 
+    vendorLocationLat, 
+    vendorLocationLon, 
+    weatherAtOrder 
+  } = req.body;
+  
   const vendorId = req.user.id; // From authMiddleware
 
   const order = await prisma.order.create({
     data: {
       vendorId,
       totalPrice,
+      supplierId,
+      vendorLocationLat,
+      vendorLocationLon,
+      weatherAtOrder,
       orderItems: {
         create: orderItems.map(item => ({
           productId: item.productId,
           quantity: item.quantity,
           price: item.price,
+          unitOfMeasure: item.unitOfMeasure,
         })),
       },
     },
     include: {
-      orderItems: true, // Include the created items in the response
+      orderItems: true,
     },
   });
-  
-  // --- NEW: Publish an event to RabbitMQ after creating the order ---
+
+  // --- Publish an event to RabbitMQ after creating the order ---
   try {
     const eventPayload = {
       orderId: order.id,
@@ -40,14 +57,17 @@ const createOrder = asyncHandler(async (req, res) => {
     };
     publishToQueue('order.created', eventPayload);
   } catch (error) {
-    // It's important to only log this error and not crash the request.
-    // The order was created successfully, even if the message failed to send.
     console.error('Failed to publish order.created event:', error);
   }
 
   res.status(201).json(order);
 });
 
+/**
+ * @desc    Get orders for the logged-in vendor
+ * @route   GET /api/orders/myorders
+ * @access  Private/Vendor
+ */
 const getMyOrders = asyncHandler(async (req, res) => {
     const vendorId = req.user.id;
     const orders = await prisma.order.findMany({
@@ -58,17 +78,14 @@ const getMyOrders = asyncHandler(async (req, res) => {
     res.status(200).json(orders);
 });
 
-// --- NEW FUNCTION ---
 /**
  * @desc    Get incoming orders for a supplier's products
  * @route   GET /api/orders/incoming
  * @access  Private/Supplier
  */
 const getIncomingOrders = asyncHandler(async (req, res) => {
-  const token = req.headers.authorization; // We need the token to pass to the next service
+  const token = req.headers.authorization;
 
-  // 1. Call the Product service to get the supplier's product IDs
-  // This is the inter-service communication step.
   const productResponse = await fetch(`${process.env.PRODUCT_API_URL}/api/products/supplier`, {
     headers: { 'Authorization': token },
   });
@@ -81,16 +98,15 @@ const getIncomingOrders = asyncHandler(async (req, res) => {
   const productIds = supplierProducts.map(p => p._id);
 
   if (productIds.length === 0) {
-    return res.json([]); // Return an empty array if the supplier has no products
+    return res.json([]);
   }
 
-  // 2. Find all order items in our database that match the supplier's product IDs
   const orderItems = await prisma.orderItem.findMany({
     where: {
       productId: { in: productIds },
     },
     include: {
-      order: true, // Include the parent order details for context
+      order: true,
     },
      orderBy: {
       order: {
@@ -103,9 +119,9 @@ const getIncomingOrders = asyncHandler(async (req, res) => {
 });
 
 
-module.exports = {
+export {
   createOrder,
   getMyOrders,
-  getIncomingOrders, // Export the new function
+  getIncomingOrders
 };
 

@@ -1,0 +1,23 @@
+{
+  "name": "blockchain-service",
+  "version": "1.0.0",
+  "description": "Service for managing blockchain interactions for reviews and traceability.",
+  "main": "listener.js",
+  "type": "module",
+  "scripts": {
+    "start": "node listener.js",
+    "dev": "nodemon listener.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "amqplib": "^0.10.9",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.15.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "hardhat": "^2.26.3"
+  }
+}

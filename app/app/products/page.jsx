@@ -5,85 +5,106 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 export default function ProductsPage() {
-  const [products, setProducts] = useState([]);
+  const [productsData, setProductsData] = useState({ products: [], page: 1, pages: 1 });
+  const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [cart, setCart] = useState([]);
   const [message, setMessage] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [page, setPage] = useState(1);
 
-  // --- REFACTORED: Fetches both products and the user's cart ---
-  const fetchData = async () => {
-    setLoading(true);
+  // --- REFACTORED: This function now only fetches the cart and enriches it independently ---
+  const fetchCart = async () => {
     const token = localStorage.getItem('authToken');
-
+    if (!token) {
+      setCart([]); // Not logged in, cart is empty
+      return;
+    }
     try {
-      // Fetch products (public)
-      const productsRes = await fetch('/api/products');
-      if (!productsRes.ok) throw new Error('Failed to fetch products');
-      const productsData = await productsRes.json();
-      setProducts(productsData);
+      const cartRes = await fetch('/api/cart', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (!cartRes.ok) throw new Error('Failed to fetch cart');
+      const cartData = await cartRes.json(); // This is the basic cart [{ productId, quantity }]
 
-      // Fetch user's cart (private)
-      if (token) {
-        const cartRes = await fetch('/api/cart', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (!cartRes.ok) throw new Error('Failed to fetch cart');
-        const cartData = await cartRes.json();
-        
-        // We need to merge product details into the cart data
-        const enrichedCart = cartData.map(cartItem => {
-            const productDetails = productsData.find(p => p._id === cartItem.productId);
-            return { ...cartItem, name: productDetails?.name, price: productDetails?.price };
-        });
-        setCart(enrichedCart);
+      if (cartData.length === 0) {
+        setCart([]);
+        return;
       }
+
+      // For each item in the cart, fetch its full details to get name and price
+      const enrichedCartPromises = cartData.map(async (item) => {
+        const productRes = await fetch(`/api/products/${item.productId}`);
+        if (!productRes.ok) {
+          console.warn(`Could not fetch details for product ID: ${item.productId}`);
+          return { ...item, name: 'Product not available', price: 0 };
+        }
+        const productDetails = await productRes.json();
+        return { ...item, name: productDetails.name, price: productDetails.price };
+      });
+
+      const enrichedCart = await Promise.all(enrichedCartPromises);
+      setCart(enrichedCart);
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      // Don't set the main page error, just log it for debugging
+      console.error("Failed to fetch or enrich cart:", err.message);
     }
   };
-
+  
+  // This useEffect fetches the main list of products based on search and page
   useEffect(() => {
-    fetchData();
+    const fetchProducts = async () => {
+      setLoading(true);
+      try {
+        const productsRes = await fetch(`/api/products?search=${searchTerm}&page=${page}`);
+        if (!productsRes.ok) throw new Error('Failed to fetch products');
+        const data = await productsRes.json();
+        setProductsData(data);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProducts();
+  }, [page, searchTerm]);
+
+  // This useEffect fetches the cart details on initial page load
+  useEffect(() => {
+    fetchCart();
   }, []);
 
-  // --- REFACTORED: Add to cart now calls the API ---
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    setPage(1);
+    setSearchTerm(searchInput);
+  };
+
   const addToCart = async (product) => {
     setMessage(`Adding ${product.name} to cart...`);
     const token = localStorage.getItem('authToken');
     if (!token) return setMessage('Please log in to add items to your cart.');
-
     try {
       const response = await fetch('/api/cart', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ productId: product._id, quantity: 1 }),
       });
       if (!response.ok) throw new Error('Failed to add item');
-      
       setMessage(`${product.name} added to cart!`);
-      fetchData(); // Refresh cart from the server
+      fetchCart(); // --- FIX: Only refresh the cart, not the whole page data
     } catch (err) {
       setMessage(`Error: ${err.message}`);
     }
   };
   
-  // --- REFACTORED: handlePlaceOrder now clears the persistent cart on success ---
   const handlePlaceOrder = async () => {
     setMessage('Placing order...');
     const token = localStorage.getItem('authToken');
     if (!token || cart.length === 0) return;
-
     const orderData = {
       orderItems: cart.map(({ productId, quantity, price }) => ({ productId, quantity, price })),
       totalPrice: cart.reduce((total, item) => total + (item.price * item.quantity), 0),
     };
-
     try {
       const orderResponse = await fetch('/api/orders', {
         method: 'POST',
@@ -92,42 +113,39 @@ export default function ProductsPage() {
       });
       const newOrder = await orderResponse.json();
       if (!orderResponse.ok) throw new Error(newOrder.message || 'Failed to place order');
-
-      // On successful order, clear the persistent cart
       const clearCartResponse = await fetch('/api/cart', {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!clearCartResponse.ok) throw new Error('Failed to clear cart after order');
-
+      if (!clearCartResponse.ok) throw new Error('Failed to clear cart');
       setMessage(`Order placed successfully! Order ID: ${newOrder.id}`);
-      fetchData(); // Refresh the (now empty) cart
+      fetchCart(); // --- FIX: Only refresh the cart
     } catch (err) {
       setMessage(`Error placing order: ${err.message}`);
     }
   };
-  
+
   const cartTotal = cart.reduce((total, item) => total + (item.price * item.quantity), 0).toFixed(2);
 
   return (
-    // ... your existing JSX for the page ...
-    // The existing JSX will work perfectly with the new state logic.
     <div style={{ fontFamily: 'sans-serif', padding: '20px' }}>
-      <Link href="/login">&larr; Back to Login</Link>
+      <Link href="/">&larr; Back to Home</Link>
       <h1>Available Products</h1>
       
       {message && <p style={{ color: 'blue' }}>{message}</p>}
+      
+      <form onSubmit={handleSearchSubmit} style={{ margin: '20px 0' }}>
+        <input type="text" name="search" placeholder="Search for products..." value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+        <button type="submit">Search</button>
+      </form>
 
+      {/* Shopping Cart Display */}
       <div style={{ border: '2px solid green', padding: '15px', marginBottom: '20px' }}>
         <h2>Shopping Cart</h2>
-        {cart.length === 0 ? (
-          <p>Your cart is empty.</p>
-        ) : (
+        {cart.length === 0 ? <p>Your cart is empty.</p> : (
           <div>
             {cart.map(item => (
-              <div key={item.productId}>
-                {item.name} - ${item.price?.toFixed(2)} x {item.quantity}
-              </div>
+              <div key={item.productId}>{item.name} - ${item.price?.toFixed(2) || 'N/A'} x {item.quantity}</div>
             ))}
             <hr />
             <p><strong>Total: ${cartTotal}</strong></p>
@@ -141,15 +159,22 @@ export default function ProductsPage() {
 
       {!loading && !error && (
         <div>
-          {products.map((product) => (
-            <div key={product._id} style={{ border: '1px solid #ccc', padding: '10px', marginBottom: '10px' }}>
-              <h2>{product.name}</h2>
-              <p>{product.description}</p>
-              <p><strong>Price:</strong> ${product.price.toFixed(2)} per {product.unit}</p>
-              <p><strong>Stock:</strong> {product.stock}</p>
-              <button onClick={() => addToCart(product)}>Add to Cart</button>
-            </div>
-          ))}
+          {productsData.products.length === 0 ? <p>No products found.</p> : (
+            productsData.products.map((product) => (
+              <div key={product._id} style={{ border: '1px solid #ccc', padding: '10px', marginBottom: '10px' }}>
+                <h2><Link href={`/products/${product._id}`}>{product.name}</Link></h2>
+                <p>{product.description}</p>
+                <p><strong>Price:</strong> ${product.price.toFixed(2)} per {product.unit}</p>
+                <button onClick={() => addToCart(product)}>Add to Cart</button>
+              </div>
+            ))
+          )}
+          {/* Pagination Controls */}
+          <div style={{ marginTop: '20px' }}>
+            <button onClick={() => setPage(p => p - 1)} disabled={productsData.page <= 1}>Previous</button>
+            <span style={{ margin: '0 10px' }}>Page {productsData.page} of {productsData.pages}</span>
+            <button onClick={() => setPage(p => p + 1)} disabled={productsData.page >= productsData.pages}>Next</button>
+          </div>
         </div>
       )}
     </div>
