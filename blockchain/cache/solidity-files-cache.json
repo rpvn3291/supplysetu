@@ -36,6 +36,42 @@
       "artifacts": [
         "Reviews"
       ]
+    },
+    "/home/rohit/Documents/CapstoneProject/blockchain/contracts/Traceability.sol": {
+      "lastModificationDate": 1761068354976,
+      "contentHash": "1725b865b1f2688a21e8f1e5b3fd25cb",
+      "sourceName": "contracts/Traceability.sol",
+      "solcConfig": {
+        "version": "0.8.24",
+        "settings": {
+          "evmVersion": "paris",
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.24"
+      ],
+      "artifacts": [
+        "Traceability"
+      ]
     }
   }
 }

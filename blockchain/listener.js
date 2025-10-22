@@ -2,9 +2,6 @@
 import 'dotenv/config';
 import amqp from 'amqplib';
 import { ethers } from 'ethers';
-
-// --- THIS IS THE FIX ---
-// We will manually read and parse the JSON file instead of using import assertions.
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -13,15 +10,16 @@ import path from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Construct the path and load the artifact
-const artifactPath = path.join(__dirname, './artifacts/contracts/Reviews.sol/Reviews.json');
-const artifactFile = fs.readFileSync(artifactPath, 'utf8');
-const ReviewsArtifact = JSON.parse(artifactFile);
-// --- END OF FIX ---
+// --- Load BOTH smart contract artifacts ---
+const reviewsArtifactPath = path.join(__dirname, './artifacts/contracts/Reviews.sol/Reviews.json');
+const traceabilityArtifactPath = path.join(__dirname, './artifacts/contracts/Traceability.sol/Traceability.json');
 
+const ReviewsArtifact = JSON.parse(fs.readFileSync(reviewsArtifactPath, 'utf8'));
+const TraceabilityArtifact = JSON.parse(fs.readFileSync(traceabilityArtifactPath, 'utf8'));
 
-const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
-const ABI = ReviewsArtifact.abi;
+// --- Get BOTH contract addresses from .env ---
+const REVIEWS_CONTRACT_ADDRESS = process.env.REVIEWS_CONTRACT_ADDRESS;
+const TRACEABILITY_CONTRACT_ADDRESS = process.env.TRACEABILITY_CONTRACT_ADDRESS;
 
 async function main() {
   console.log('Blockchain listener service starting...');
@@ -29,49 +27,73 @@ async function main() {
   // --- Connect to the Blockchain ---
   const provider = new ethers.JsonRpcProvider(process.env.HARDHAT_NODE_URL);
   const wallet = new ethers.Wallet(process.env.ADMIN_PRIVATE_KEY, provider);
-  const reviewsContract = new ethers.Contract(CONTRACT_ADDRESS, ABI, wallet);
-  console.log(`Connected to smart contract at ${CONTRACT_ADDRESS}`);
+  
+  // Create contract instances for BOTH contracts
+  const reviewsContract = new ethers.Contract(REVIEWS_CONTRACT_ADDRESS, ReviewsArtifact.abi, wallet);
+  const traceabilityContract = new ethers.Contract(TRACEABILITY_CONTRACT_ADDRESS, TraceabilityArtifact.abi, wallet);
+  
+  console.log(`Connected to Reviews contract at ${REVIEWS_CONTRACT_ADDRESS}`);
+  console.log(`Connected to Traceability contract at ${TRACEABILITY_CONTRACT_ADDRESS}`);
 
 
-  // --- Connect to RabbitMQ ---
+  // --- Connect to RabbitMQ and consume from MULTIPLE queues ---
   try {
     const connection = await amqp.connect(process.env.AMQP_URL);
     const channel = await connection.createChannel();
-    const queueName = 'review.created';
-    await channel.assertQueue(queueName, { durable: true });
     
-    console.log(`[*] Waiting for review.created messages in queue: ${queueName}`);
-
-    channel.consume(queueName, async (msg) => {
+    // --- Set up listener for Review events ---
+    const reviewQueue = 'review.created';
+    await channel.assertQueue(reviewQueue, { durable: true });
+    console.log(`[*] Waiting for messages in queue: ${reviewQueue}`);
+    channel.consume(reviewQueue, async (msg) => {
       if (msg !== null) {
         try {
           const review = JSON.parse(msg.content.toString());
-          console.log('[x] Received review:', review);
+          console.log('[x] Received review.created event:', review);
 
-          // --- Execute the Smart Contract Transaction ---
-          console.log('--> Sending transaction to add review to the blockchain...');
           const tx = await reviewsContract.addReview(
             review.targetUserId,
             review.reviewerId,
             review.orderId,
             review.rating,
-            review.comment || '' // Pass an empty string if comment is null
+            review.comment || ''
           );
-          
-          // Wait for the transaction to be mined
           await tx.wait(); 
-          console.log(`[✔] Transaction successful! Hash: ${tx.hash}`);
-
-          // Acknowledge the message so RabbitMQ removes it from the queue
+          console.log(`[✔] Review transaction successful! Hash: ${tx.hash}`);
           channel.ack(msg);
-
         } catch (error) {
-          console.error('Failed to process message or send transaction:', error);
-          // In a real app, you would handle this failure (e.g., move to a dead-letter queue)
-          channel.nack(msg, false, false); // Reject the message without requeueing
+          console.error('Failed to process review message:', error);
+          channel.nack(msg, false, false);
         }
       }
     });
+
+    // --- NEW: Set up listener for Product events ---
+    const productQueue = 'product.created';
+    await channel.assertQueue(productQueue, { durable: true });
+    console.log(`[*] Waiting for messages in queue: ${productQueue}`);
+    channel.consume(productQueue, async (msg) => {
+        if (msg !== null) {
+            try {
+                const product = JSON.parse(msg.content.toString());
+                console.log('[x] Received product.created event:', product);
+
+                const tx = await traceabilityContract.createProductBatch(
+                    product.batchId,
+                    product.productName,
+                    product.supplierId,
+                    product.supplierName
+                );
+                await tx.wait();
+                console.log(`[✔] Product batch transaction successful! Hash: ${tx.hash}`);
+                channel.ack(msg);
+            } catch (error) {
+                console.error('Failed to process product message:', error);
+                channel.nack(msg, false, false);
+            }
+        }
+    });
+
   } catch (error) {
     console.error('Failed to connect to RabbitMQ consumer:', error);
   }

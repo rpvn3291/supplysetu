@@ -1,21 +1,28 @@
 // filename: scripts/deploy.js
-
-// We import the Hardhat Runtime Environment explicitly here using ES Module syntax.
 import hre from "hardhat";
+const { ethers } = hre;
 
 async function main() {
-  // We get the contract to deploy.
-  const Reviews = await hre.ethers.getContractFactory("Reviews");
+  console.log("Deploying contracts...");
+
+  // --- Deploy the Reviews Contract ---
+  const Reviews = await ethers.getContractFactory("Reviews");
   const reviews = await Reviews.deploy();
-
   await reviews.waitForDeployment();
+  const reviewsAddress = await reviews.getAddress();
+  console.log(`Reviews contract deployed to: ${reviewsAddress}`);
 
-  const contractAddress = await reviews.getAddress();
-  console.log(`Reviews contract deployed to: ${contractAddress}`);
+  // --- Deploy the NEW Traceability Contract ---
+  const Traceability = await ethers.getContractFactory("Traceability");
+  const traceability = await Traceability.deploy();
+  await traceability.waitForDeployment();
+  const traceabilityAddress = await traceability.getAddress();
+  console.log(`Traceability contract deployed to: ${traceabilityAddress}`);
+
+  console.log("\nDeployment complete!");
+  console.log("Update your .env file with these new addresses if needed.");
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;

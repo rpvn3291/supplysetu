@@ -2,13 +2,30 @@
 const asyncHandler = require('express-async-handler');
 const Product = require('../models/productModel');
 
+const { publishToQueue } = require('../amqp/connection'); // Import the publisher
+
 const createProduct = asyncHandler(async (req, res) => {
-  // The supplierId is still from the token, but the rest of the data
-  // including denormalized fields, will come from the request body.
   const supplierId = req.user.id;
   const productData = { ...req.body, supplierId };
 
   const product = await Product.create(productData);
+
+  // --- NEW: Publish an event to RabbitMQ for traceability ---
+  try {
+    // We send a simplified payload for the blockchain service
+    const eventPayload = {
+      batchId: product._id.toString(), // Use the MongoDB ID as the unique batch ID
+      productName: product.name,
+      supplierId: product.supplierId,
+      supplierName: product.supplierName,
+      timestamp: new Date(),
+    };
+    publishToQueue('product.created', eventPayload);
+  } catch (error) {
+    // Log the error but don't fail the request
+    console.error('Failed to publish product.created event:', error);
+  }
+
   res.status(201).json(product);
 });
 

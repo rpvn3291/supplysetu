@@ -5,11 +5,13 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 const productRoutes = require('./routes/productRoutes');
 const { errorHandler } = require('./middleware/errorHandler');
-const { connectAndConsume } = require('./amqp/orderConsumer'); // Import the consumer
+// --- IMPORT THE NEW CONNECTION HELPERS ---
+const { connectToRabbitMQ } = require('./amqp/connection'); 
+const { connectAndConsume } = require('./amqp/orderConsumer');
 
-// Connect to MongoDB
+// Connect to Databases and Message Bus
 connectDB();
-// Connect to RabbitMQ and start listening for messages
+connectToRabbitMQ(); // <-- THIS IS THE NEW LINE TO ADD
 connectAndConsume();
 
 const app = express();
