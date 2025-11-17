@@ -1,7 +1,9 @@
 // This is your Prisma schema file for the Order service
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Add "windows" to this list
+  binaryTargets = ["native", "windows"] 
 }
 
 datasource db {

@@ -1,42 +1,27 @@
+// filename: app/login/page.jsx
 'use client';
 
 import { useState } from 'react';
-// const router = useRouter(); // Removed next/navigation import and usage
-
-// Load Lucide icons for visual enhancement (using inline SVG is better but for quick icons, this works)
-// Note: In a real Next.js environment, you would import icons, but here we proceed assuming the environment handles Tailwind classes.
-// For this single-file React environment, we will use placeholders or simple text until we are explicitly asked to use an icon library via CDN/npm.
+import { useRouter } from 'next/navigation'; // Make sure this import is present
 
 export default function LoginPage() {
-  // We cannot use useRouter() from next/navigation in this environment.
-  // We'll manage state locally for demonstration.
+  const router = useRouter(); // Hook for navigation
   const [message, setMessage] = useState('');
 
   // --- State Management ---
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-
-  // State for toggling between login and register views
   const [isRegister, setIsRegister] = useState(false);
-  // State for choosing role in registration
   const [role, setRole] = useState('VENDOR');
-
-  // Common registration fields
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
-
-  // --- Location state ---
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const [locationError, setLocationError] = useState('');
-
-  // Vendor-specific fields
   const [vendorProfile, setVendorProfile] = useState({
     firstName: '', lastName: '', address: '', pincode: '', phoneNumber: '', foodType: ''
   });
-
-  // Supplier-specific fields
   const [supplierProfile, setSupplierProfile] = useState({
     companyName: '', warehouseAddress: '', pincode: '', contactPerson: '', gstId: '', deliveryVehicles: '', minOrderValue: ''
   });
@@ -51,11 +36,9 @@ export default function LoginPage() {
       setLocationError('Geolocation is not supported by your browser.');
       return;
     }
-
     setIsFetchingLocation(true);
     setLocationError('');
-    setMessage(''); // Clear previous messages
-
+    setMessage('');
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setLatitude(position.coords.latitude);
@@ -65,52 +48,81 @@ export default function LoginPage() {
       },
       (error) => {
         console.error("Geolocation Error:", error);
-        setLocationError(`Error getting location: ${error.message}. Please enable location services.`);
+        setLocationError(`Error getting location: ${error.message}. Please ensure location services are enabled.`);
         setIsFetchingLocation(false);
       },
-      {
-          enableHighAccuracy: true,
-          timeout: 10000, // 10 seconds
-          maximumAge: 0 // Don't use cached location
-      }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
-  // --- API Call Logic (Placeholder for Canvas environment) ---
+  // --- API Call Logic ---
   const handleLogin = async (e) => {
     e.preventDefault();
-    setMessage('Login logic is simulated...');
-    // Simulating success for preview purposes:
-    setTimeout(() => {
-        // Clear login fields after simulated login
-        setLoginEmail('');
-        setLoginPassword('');
-        setMessage('Login simulated successfully! You would now be redirected to the dashboard.');
-    }, 1000);
+    setMessage('Logging in...');
+    setLocationError('');
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      localStorage.setItem('authToken', data.token);
+      setMessage(`Login successful! Welcome ${data.user.email}. Redirecting...`);
+      setLoginEmail(''); // Clear fields
+      setLoginPassword('');
+      router.push('/'); // Navigate to home page
+    } catch (error) {
+      setMessage(`Login failed: ${error.message}`);
+    }
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
     setLocationError('');
-
     if (!latitude || !longitude) {
-        setMessage('Please fetch your location using the button before registering.');
-        return;
+      setMessage('Please fetch your location using the button before registering.');
+      return;
     }
-
-    setMessage('Registration logic is simulated...');
-    // Simulating success for preview purposes:
-    setTimeout(() => {
-        // Clear registration form after simulated registration
-        setRegisterEmail('');
-        setRegisterPassword('');
-        setLatitude('');
-        setLongitude('');
-        setVendorProfile({ firstName: '', lastName: '', address: '', pincode: '', phoneNumber: '', foodType: '' });
-        setSupplierProfile({ companyName: '', warehouseAddress: '', pincode: '', contactPerson: '', gstId: '', deliveryVehicles: '', minOrderValue: '' });
-        setMessage('Registration simulated successfully! You would now be redirected to the dashboard.');
-        setIsRegister(false); // Optional: switch back to login
-    }, 1500);
+    setMessage('Registering...');
+    let profileData;
+    if (role === 'VENDOR') {
+      profileData = { ...vendorProfile, latitude: parseFloat(latitude), longitude: parseFloat(longitude) };
+      profileData.operatingHours = { "default": "9am-10pm" };
+    } else { // SUPPLIER
+      profileData = {
+        ...supplierProfile,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        deliveryVehicles: typeof supplierProfile.deliveryVehicles === 'string'
+                          ? supplierProfile.deliveryVehicles.split(',').map(v => v.trim())
+                          : [],
+        minOrderValue: parseFloat(supplierProfile.minOrderValue) || 0
+      };
+    }
+    const registrationData = { email: registerEmail, password: registerPassword, role, profileData };
+    try {
+       const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(registrationData),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Registration failed');
+      localStorage.setItem('authToken', data.token);
+      setMessage('Registration successful! Redirecting...');
+      // Clear form
+      setRegisterEmail('');
+      setRegisterPassword('');
+      setLatitude('');
+      setLongitude('');
+      setVendorProfile({ firstName: '', lastName: '', address: '', pincode: '', phoneNumber: '', foodType: '' });
+      setSupplierProfile({ companyName: '', warehouseAddress: '', pincode: '', contactPerson: '', gstId: '', deliveryVehicles: '', minOrderValue: '' });
+      router.push('/'); // Navigate to home page
+    } catch (error) {
+        setMessage(`Registration failed: ${error.message}`);
+    }
   };
 
   // Helper component for input fields
@@ -131,10 +143,10 @@ export default function LoginPage() {
     </div>
   );
 
-  // --- JSX (HTML Structure) ---
+  // --- JSX (Using Friend's Structure) ---
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 sm:p-6 font-inter">
-      
+
       {/* Header Card */}
       <div className="w-full max-w-lg bg-white shadow-xl rounded-2xl p-6 sm:p-8 mb-6 border-t-4 border-amber-500">
         <div className="flex items-center justify-center mb-4">
@@ -151,7 +163,7 @@ export default function LoginPage() {
 
         {/* Messaging Area */}
         {message && (
-          <div className={`p-3 mb-4 rounded-lg text-sm font-medium ${message.includes('success') || message.includes('fetched') ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+          <div className={`p-3 mb-4 rounded-lg text-sm font-medium ${message.includes('success') || message.includes('Location fetched') ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
             {message}
           </div>
         )}
@@ -182,7 +194,7 @@ export default function LoginPage() {
           <form onSubmit={handleLogin}>
             <FormInput label="Email" name="loginEmail" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} type="email" />
             <FormInput label="Password" name="loginPassword" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} type="password" />
-            
+
             <button
               type="submit"
               className="w-full mt-6 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition duration-200 shadow-md"
@@ -195,14 +207,14 @@ export default function LoginPage() {
         /* --- REGISTRATION FORM --- */
         <form onSubmit={handleRegister}>
           <h2 className="text-xl font-semibold text-gray-700 mb-4">Join as:</h2>
-          
+
           {/* Role Selector */}
-          <div className="flex space-x-6 mb-6">
-            <label className={`flex items-center p-3 rounded-lg cursor-pointer transition duration-150 ${role === 'VENDOR' ? 'bg-amber-100 ring-2 ring-amber-500' : 'bg-gray-100 hover:bg-gray-200'}`}>
+          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 mb-6">
+            <label className={`flex flex-1 items-center p-3 rounded-lg cursor-pointer transition duration-150 ${role === 'VENDOR' ? 'bg-amber-100 ring-2 ring-amber-500' : 'bg-gray-100 hover:bg-gray-200'}`}>
               <input type="radio" value="VENDOR" checked={role === 'VENDOR'} onChange={(e) => setRole(e.target.value)} className="form-radio text-amber-500 h-4 w-4" />
               <span className="ml-2 font-medium text-gray-700">Street Food Vendor</span>
             </label>
-            <label className={`flex items-center p-3 rounded-lg cursor-pointer transition duration-150 ${role === 'SUPPLIER' ? 'bg-green-100 ring-2 ring-green-500' : 'bg-gray-100 hover:bg-gray-200'}`}>
+            <label className={`flex flex-1 items-center p-3 rounded-lg cursor-pointer transition duration-150 ${role === 'SUPPLIER' ? 'bg-green-100 ring-2 ring-green-500' : 'bg-gray-100 hover:bg-gray-200'}`}>
               <input type="radio" value="SUPPLIER" checked={role === 'SUPPLIER'} onChange={(e) => setRole(e.target.value)} className="form-radio text-green-500 h-4 w-4" />
               <span className="ml-2 font-medium text-gray-700">Raw Material Supplier</span>
             </label>
@@ -215,7 +227,7 @@ export default function LoginPage() {
           <FormInput label="Email" name="registerEmail" value={registerEmail} onChange={(e) => setRegisterEmail(e.target.value)} type="email" />
           <FormInput label="Password" name="registerPassword" value={registerPassword} onChange={(e) => setRegisterPassword(e.target.value)} type="password" />
 
-          {/* Location Section - CRITICAL for problem solution */}
+          {/* Location Section */}
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl mb-6">
             <label className="block text-sm font-bold text-blue-700 mb-2">
                 Verify Location (Required)
@@ -279,7 +291,7 @@ export default function LoginPage() {
           >
             Create Account & Get Started
           </button>
-          
+
           <p className="text-xs text-gray-500 mt-4 text-center">
             By registering, you agree to transparent pricing and verified supply chains.
           </p>
@@ -289,3 +301,4 @@ export default function LoginPage() {
     </div>
   );
 }
+
