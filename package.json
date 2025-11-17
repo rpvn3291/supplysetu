@@ -1,0 +1,25 @@
+{
+  "name": "supplysetu-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Master runner for all Supply Setu microservices and frontend",
+  "scripts": {
+    "dev:auth": "cd auth && npm run dev",
+    "dev:product": "cd product && npm run dev",
+    "dev:order": "cd order && npm run dev",
+    "dev:cart": "cd cart && npm run dev",
+    "dev:community": "cd community && npm run dev",
+    "dev:reviews": "cd reviews && npm run dev",
+    "dev:hardhat-node": "cd blockchain && npx hardhat node",
+    "dev:blockchain-listener": "cd blockchain && npm run dev",
+    "dev:app": "cd app && npm run dev",
+    
+    "dev": "concurrently \"npm:dev:*\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
