@@ -15,6 +15,7 @@ import LiveMarket from './models/liveMarketModel.js';
 connectDB();
 
 const app = express();
+app.get('/', (req, res) => res.send('Community Socket.io Server is Running.'));
 const httpServer = createServer(app);
 
 // Setup Socket.IO with CORS
