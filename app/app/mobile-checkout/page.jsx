@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import Script from 'next/script';
 import { useSearchParams } from 'next/navigation';
 
-export default function MobileCheckout() {
+function CheckoutContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState('Initializing...');
   const [error, setError] = useState(null);
@@ -122,5 +122,17 @@ export default function MobileCheckout() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function MobileCheckout() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+      </div>
+    }>
+      <CheckoutContent />
+    </Suspense>
   );
 }
