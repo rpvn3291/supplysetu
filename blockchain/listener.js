@@ -1,5 +1,6 @@
 // filename: listener.js
 import 'dotenv/config';
+import express from 'express';
 import amqp from 'amqplib';
 import { ethers } from 'ethers';
 import fs from 'fs';
@@ -98,6 +99,18 @@ async function main() {
     console.error('Failed to connect to RabbitMQ consumer:', error);
   }
 }
+
+// --- Dummy Web Server for Render Health Checks ---
+const app = express();
+const port = process.env.PORT || 10000;
+
+app.get('/', (req, res) => {
+  res.status(200).send('Blockchain listener is active.');
+});
+
+app.listen(port, () => {
+  console.log(`Dummy web server listening on port ${port} to satisfy Render's health checks`);
+});
 
 main();
 
