@@ -2,7 +2,25 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation'; // Make sure this import is present
+import { useRouter } from 'next/navigation'; // Hook for navigation
+
+// Helper component for input fields
+const FormInput = ({ label, name, value, onChange, type = 'text', required = true, maxLength, step }) => (
+  <div className="mb-4">
+    <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+    <input
+      type={type}
+      id={name}
+      name={name}
+      value={value}
+      onChange={onChange}
+      required={required}
+      maxLength={maxLength}
+      step={step}
+      className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 transition duration-150"
+    />
+  </div>
+);
 
 export default function LoginPage() {
   const router = useRouter(); // Hook for navigation
@@ -124,24 +142,6 @@ export default function LoginPage() {
         setMessage(`Registration failed: ${error.message}`);
     }
   };
-
-  // Helper component for input fields
-  const FormInput = ({ label, name, value, onChange, type = 'text', required = true, maxLength, step }) => (
-    <div className="mb-4">
-      <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <input
-        type={type}
-        id={name}
-        name={name}
-        value={value}
-        onChange={onChange}
-        required={required}
-        maxLength={maxLength}
-        step={step}
-        className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 transition duration-150"
-      />
-    </div>
-  );
 
   // --- JSX (Using Friend's Structure) ---
   return (

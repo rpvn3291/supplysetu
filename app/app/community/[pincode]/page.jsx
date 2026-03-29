@@ -12,126 +12,6 @@ const formatTime = (dateString) => {
     return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-// --- NEW: Modal Component for Polls ---
-const PollModal = ({ isOpen, onClose, onSubmit }) => {
-  const [question, setQuestion] = useState('');
-  const [options, setOptions] = useState(''); // Comma-separated string
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const optionsArray = options.split(',').map(o => o.trim()).filter(o => o);
-    if (question && optionsArray.length > 1) {
-      onSubmit(question, optionsArray);
-      setQuestion('');
-      setOptions('');
-      onClose();
-    } else {
-      alert("Please provide a question and at least two comma-separated options.");
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-20 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-        <h2 className="text-xl font-semibold mb-4">Start a New Poll</h2>
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700">Poll Question</label>
-            <input
-              type="text"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              className="mt-1 w-full p-2 border border-gray-300 rounded-md"
-              required
-            />
-          </div>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700">Options (comma-separated)</label>
-            <input
-              type="text"
-              value={options}
-              onChange={(e) => setOptions(e.target.value)}
-              placeholder="e.g., Yes, No, Maybe"
-              className="mt-1 w-full p-2 border border-gray-300 rounded-md"
-              required
-            />
-          </div>
-          <div className="flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">
-              Cancel
-            </button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-              Start Poll
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// --- NEW: Modal Component for Bulk Orders ---
-const BulkOrderModal = ({ isOpen, onClose, onSubmit }) => {
-  const [productId, setProductId] = useState('');
-  const [productName, setProductName] = useState('');
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (productId && productName) {
-      onSubmit(productId, productName);
-      setProductId('');
-      setProductName('');
-      onClose();
-    } else {
-      alert("Please provide both a product ID and name.");
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-20 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-        <h2 className="text-xl font-semibold mb-4">Start a Bulk Order</h2>
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700">Product ID</label>
-            <input
-              type="text"
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              className="mt-1 w-full p-2 border border-gray-300 rounded-md"
-              required
-            />
-          </div>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700">Product Name</label>
-            <input
-              type="text"
-              value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              placeholder="e.g., Fresh Tomatoes"
-              className="mt-1 w-full p-2 border border-gray-300 rounded-md"
-              required
-            />
-          </div>
-          <div className="flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">
-              Cancel
-            </button>
-            <button type="submit" className="px-4 py-2 bg-amber-500 text-white rounded-md hover:bg-amber-600">
-              Propose Bulk Order
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-
 export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -144,16 +24,24 @@ export default function ChatPage() {
   const { pincode } = params;
   const messagesEndRef = useRef(null);
 
-  // --- NEW: State for modals ---
-  const [isPollModalOpen, setIsPollModalOpen] = useState(false);
-  const [isBulkOrderModalOpen, setIsBulkOrderModalOpen] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState('');
+  const [bulkOrderProduct, setBulkOrderProduct] = useState('');
+  const [bulkOrderProductId, setBulkOrderProductId] = useState('');
+  const [bulkOrderSupplierId, setBulkOrderSupplierId] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [commitQty, setCommitQty] = useState('');
+  const [debugLog, setDebugLog] = useState('Init');
 
-  const scrollToBottom = () => { /* ... existing code ... */ };
+  const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); };
   useEffect(scrollToBottom, [messages]);
 
   useEffect(() => {
     const token = localStorage.getItem('authToken');
-    if (!token) { /* ... existing code ... */ return; }
+    if (!token) { 
+        setDebugLog(prev => prev + ' -> NO TOKEN FOUND IN LOCALSTORAGE');
+        return; 
+    }
     try {
         const base64Url = token.split('.')[1];
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -161,15 +49,35 @@ export default function ChatPage() {
             return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
         }).join(''));
         setMyUserId(JSON.parse(jsonPayload).id);
-    } catch(e) { console.error("Error decoding token:", e)}
+        setDebugLog(prev => prev + ' -> Token Decoded');
+    } catch(e) { 
+        console.error("Error decoding token:", e);
+        setDebugLog(prev => prev + ' -> Token Decode Error: ' + e.message);
+    }
 
-    const newSocket = io(process.env.NEXT_PUBLIC_COMMUNITY_API_URL, { auth: { token } });
+    const apiUrl = process.env.NEXT_PUBLIC_COMMUNITY_API_URL || 'http://localhost:3005';
+    setDebugLog(prev => prev + ' -> Connecting to ' + apiUrl + ' with pincode: ' + String(pincode));
+
+    const newSocket = io(apiUrl, { auth: { token }, transports: ['websocket'] }); // Force websocket to bypass generic HTTP CORS issues if any
     setSocket(newSocket);
-    newSocket.emit('join_room', pincode);
     
-    // --- Listeners (unchanged) ---
+    newSocket.on('connect', () => {
+        setDebugLog(prev => prev + ' -> Socket Connected!');
+        newSocket.emit('join_room', String(pincode));
+    });
+
+    newSocket.on('connect_error', (err) => {
+        setDebugLog(prev => prev + ' -> Socket Error: ' + err.message);
+    });
+    
     newSocket.on('community_info', (data) => setCommunityInfo(data));
-    newSocket.on('chat_history', (history) => setMessages(history));
+    newSocket.on('chat_history', (history) => {
+        setDebugLog(prev => prev + ' -> History Received (' + history.length + ')');
+        setMessages(history);
+    });
+    newSocket.on('error_message', (err) => {
+        setDebugLog(prev => prev + ' -> SERVER ERROR: ' + err.message);
+    });
     newSocket.on('receive_message', (message) => setMessages((prev) => [...prev, message]));
     newSocket.on('new_poll', (pollData) => setPoll(pollData));
     newSocket.on('poll_update', (pollData) => setPoll(pollData));
@@ -182,77 +90,149 @@ export default function ChatPage() {
     return () => newSocket.disconnect();
   }, [pincode]);
 
-  const handleSendMessage = (e) => { /* ... existing code ... */ };
-  const handleVote = (option) => { /* ... existing code ... */ };
-
-  // --- UPDATED: Modal submit handlers ---
-  const handleSubmitPoll = (question, options) => {
-    if (socket) {
-      socket.emit('start_poll', { pincode, question, options });
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (newMessage.trim() && socket) {
+      socket.emit('send_message', { pincode, message: newMessage.trim() });
+      setNewMessage('');
     }
   };
 
-  const handleSubmitBulkOrder = (productId, productName) => {
-    if (socket) {
-      socket.emit('start_bulk_order', { pincode, productId, productName });
-    }
+  const handleVote = (option) => {
+    if (socket) socket.emit('vote', { pincode, option });
   };
 
-  const [commitQty, setCommitQty] = useState('');
-  const handleCommitToBulkOrder = (e) => { /* ... existing code ... */ };
-  const handleFinalizeBulkOrder = () => { /* ... existing code ... */ };
+  const handleCommitToBulkOrder = () => {
+      if(socket && commitQty) {
+          socket.emit('commit_to_bulk_order', { pincode, quantity: parseInt(commitQty, 10) });
+          setCommitQty('');
+      }
+  };
+
+  const handleStartPoll = () => {
+      if(socket && pollQuestion && pollOptions) {
+          const optionsArr = pollOptions.split(',').map(o => o.trim()).filter(o => o);
+          socket.emit('start_poll', { pincode, question: pollQuestion, options: optionsArr });
+          setPollQuestion(''); setPollOptions('');
+      }
+  };
+
+  const handleSearchProducts = async (text) => {
+      setBulkOrderProduct(text);
+      setBulkOrderProductId('');
+      setBulkOrderSupplierId('');
+      if (!text) { setSearchResults([]); return; }
+      try {
+          const res = await fetch(`http://localhost:3002/api/products?search=${text}`);
+          const data = await res.json();
+          setSearchResults(data.products || []);
+      } catch(e) { console.error(e); }
+  };
+
+  const selectProduct = (p) => {
+      setBulkOrderProduct(p.name);
+      setBulkOrderProductId(p._id);
+      setBulkOrderSupplierId(p.supplierId);
+      setSearchResults([]);
+  };
+
+  const handleStartBulkOrder = () => {
+      if(socket && bulkOrderProduct && bulkOrderProductId && bulkOrderSupplierId) {
+          socket.emit('start_bulk_order', { pincode, productId: bulkOrderProductId, productName: bulkOrderProduct, supplierId: bulkOrderSupplierId });
+          setBulkOrderProduct(''); setBulkOrderProductId(''); setBulkOrderSupplierId('');
+      } else if (socket && bulkOrderProduct) {
+          alert("Please select a valid product from the dropdown list.");
+      }
+  };
+
+  const handleFinalizeBulkOrder = () => {
+      if(socket) {
+          socket.emit('finalize_bulk_order', { pincode, pricePerUnit: 100 });
+      }
+  };
 
   const isPresident = myUserId === communityInfo.presidentId;
 
   return (
-    <> {/* Use Fragment to render modals outside the main div */}
       <div className="flex flex-col h-screen bg-gray-100 font-inter">
-        {/* Header */}
         <header className="bg-white shadow-md p-4 sticky top-0 z-10">
-          <div className="container mx-auto flex justify-between items-center">
-            <Link href="/community" className="text-blue-600 hover:underline text-sm sm:text-base">
-              &larr; Change Pincode
-            </Link>
-            <div className="text-center">
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Community: {pincode}</h1>
-              <p className="text-xs text-gray-500">
-                President: {communityInfo.presidentId ? `${communityInfo.presidentId.substring(0, 8)}...` : 'N/A'}
-              </p>
+          <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center">
+            <Link href="/community" className="text-blue-600 hover:underline text-sm sm:text-base">&larr; Change Pincode</Link>
+            <div className="text-center my-2 sm:my-0">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Pincode {pincode} Hub</h1>
+              {isPresident && <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded font-bold">President</span>}
             </div>
-            <div className="w-24"></div> 
+            <div className="text-xs text-red-500 font-mono w-full sm:w-1/3 overflow-hidden text-right">Debug: {debugLog}</div> 
           </div>
         </header>
 
-        {/* Main Content Area */}
         <main className="flex-grow container mx-auto p-4 overflow-hidden flex flex-col gap-4">
-          {/* Poll Display */}
-          {poll && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 shadow">
-              {/* ... existing poll display JSX ... */}
-            </div>
-          )}
           
-          {/* Bulk Order Display */}
-          {bulkOrder && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 shadow">
-              {/* ... existing bulk order display JSX ... */}
-            </div>
-          )}
-
-          {/* Chat Messages Area */}
           <div className="flex-grow bg-white rounded-lg shadow overflow-y-auto p-4 space-y-3">
+             {/* Widgets Area at Top of Chat */}
+             {poll && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 shadow mb-4">
+                    <h3 className="font-bold text-blue-800 mb-2">📊 Community Poll: {poll.question}</h3>
+                    <div className="space-y-2">
+                    {Object.keys(poll.options).map(key => (
+                        <button key={key} onClick={() => handleVote(key)} className="w-full text-left bg-white px-4 py-2 rounded shadow-sm hover:bg-gray-50 flex justify-between">
+                            <span className="font-semibold text-gray-700">{key}</span>
+                            <span className="text-blue-600 font-bold">{poll.options[key]} votes</span>
+                        </button>
+                    ))}
+                    </div>
+                </div>
+            )}
+            
+            {bulkOrder && (
+                <div className="bg-green-50 border border-green-400 rounded-lg p-4 shadow mb-4">
+                    <h3 className="font-bold text-green-700 mb-1">📦 Active Bulk Order: {bulkOrder.productName}</h3>
+                    <p className="text-gray-600 mb-3">Total Pledged: {bulkOrder.total} units</p>
+                    <div className="flex gap-2 mb-3">
+                        <input type="number" placeholder="Qty" value={commitQty} onChange={(e) => setCommitQty(e.target.value)} className="w-20 px-2 py-1 border rounded" />
+                        <button onClick={handleCommitToBulkOrder} className="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700 font-medium">Pledge</button>
+                    </div>
+                    {isPresident && (
+                        <button onClick={handleFinalizeBulkOrder} className="w-full bg-yellow-500 text-white font-bold py-2 rounded hover:bg-yellow-600 transition">FINALIZE & PLACE BIG ORDER</button>
+                    )}
+                </div>
+            )}
+
+            {isPresident && !poll && !bulkOrder && (
+                <div className="bg-yellow-100 border border-yellow-500 rounded-lg p-4 shadow mb-4">
+                    <h3 className="font-bold text-yellow-800 mb-3">President Tools</h3>
+                    
+                    <div className="mb-4">
+                        <input type="text" placeholder="Poll Question" value={pollQuestion} onChange={(e) => setPollQuestion(e.target.value)} className="w-full p-2 mb-2 border border-yellow-500 rounded" />
+                        <input type="text" placeholder="Options (comma separated)" value={pollOptions} onChange={(e) => setPollOptions(e.target.value)} className="w-full p-2 mb-2 border border-yellow-500 rounded" />
+                        <button onClick={handleStartPoll} className="w-full bg-yellow-500 text-white font-bold py-2 rounded">Start Poll</button>
+                    </div>
+
+                    <div className="relative">
+                        <input type="text" placeholder="Search Product for Bulk Order..." value={bulkOrderProduct} onChange={(e) => handleSearchProducts(e.target.value)} className="w-full p-2 mb-2 border border-green-500 rounded" />
+                        {searchResults.length > 0 && (
+                            <div className="absolute top-10 w-full max-h-40 overflow-y-auto bg-white border border-yellow-600 rounded shadow-lg z-20">
+                                {searchResults.map(p => (
+                                    <button key={p._id} onClick={() => selectProduct(p)} className="block w-full text-left p-2 border-b hover:bg-gray-100">
+                                        <div className="font-bold">{p.name}</div>
+                                        <div className="text-xs text-gray-500">Supplier: {p.supplierName} - ₹{p.price}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        <button onClick={handleStartBulkOrder} className="w-full bg-green-600 text-white font-bold py-2 rounded">Start Bulk Order</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Chat History */}
             {messages.map((msg, index) => {
               const isMyMessage = msg.userId === myUserId;
-              const messageIsPresident = msg.isPresident;
               return (
                 <div key={msg._id || index} className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
-                  {/* ... existing message display JSX ... */}
-                   <div className={`p-2 rounded-lg max-w-[70%] ${isMyMessage ? 'bg-green-100' : 'bg-gray-100'}`}>
-                      <p className={`text-xs font-semibold ${messageIsPresident ? 'text-red-600' : 'text-blue-600'}`}>
-                          {isMyMessage ? 'You' : `${msg.userId.substring(0, 6)}...`} {messageIsPresident && '(President)'}
-                          <span className="text-gray-400 font-normal ml-2">{formatTime(msg.createdAt)}</span>
-                      </p>
-                      <p className="text-sm text-gray-800">{msg.message}</p>
+                   <div className={`p-2 rounded-lg max-w-[70%] ${isMyMessage ? 'bg-purple-600 text-white' : 'bg-white border border-gray-300'}`}>
+                      {!isMyMessage && <p className={`text-xs font-bold mb-1 ${msg.isPresident ? 'text-red-500' : 'text-gray-500'}`}>{msg.isPresident ? '👑 President' : 'Vendor'}</p>}
+                      <p className={`text-sm ${isMyMessage ? 'text-white' : 'text-gray-800'}`}>{msg.message}</p>
                   </div>
                 </div>
               );
@@ -261,45 +241,14 @@ export default function ChatPage() {
           </div>
         </main>
 
-        {/* Footer / Input Area */}
-        <footer className="bg-white p-4 border-t sticky bottom-0 z-10">
+        <footer className="bg-white p-4 border-t sticky bottom-0 z-10 w-full">
           <div className="container mx-auto">
-            {/* President Actions */}
-            {isPresident && (
-              <div className="flex gap-2 mb-2">
-                {/* --- UPDATED: Buttons now open modals --- */}
-                <button onClick={() => setIsPollModalOpen(true)} className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200 transition">Start Poll</button>
-                <button onClick={() => setIsBulkOrderModalOpen(true)} className="px-3 py-1 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200 transition">Start Bulk Order</button>
-              </div>
-            )}
-            {/* Message Input Form */}
             <form onSubmit={handleSendMessage} className="flex gap-2">
-              <input
-                type="text"
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type your message..."
-                className="flex-grow px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500"
-              />
-              <button type="submit" className="px-5 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition shadow">
-                Send
-              </button>
+              <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type your message..." className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500" />
+              <button type="submit" className="px-5 py-2 bg-purple-600 text-white font-semibold rounded-full hover:bg-purple-700 transition shadow">Send</button>
             </form>
           </div>
         </footer>
       </div>
-
-      {/* --- NEW: Render Modals Outside Main Layout --- */}
-      <PollModal
-        isOpen={isPollModalOpen}
-        onClose={() => setIsPollModalOpen(false)}
-        onSubmit={handleSubmitPoll}
-      />
-      <BulkOrderModal
-        isOpen={isBulkOrderModalOpen}
-        onClose={() => setIsBulkOrderModalOpen(false)}
-        onSubmit={handleSubmitBulkOrder}
-      />
-    </>
   );
 }

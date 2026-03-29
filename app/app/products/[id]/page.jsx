@@ -29,6 +29,7 @@ export default function ProductDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState('');
+  const [reviews, setReviews] = useState([]);
   
   const params = useParams(); // { id: 'some-product-id' }
   const { id } = params;
@@ -58,6 +59,22 @@ export default function ProductDetailPage() {
 
     fetchProduct();
   }, [id]); // Re-fetch if the ID in the URL changes
+
+  useEffect(() => {
+    if (!product || !product.supplierId) return;
+    const fetchReviews = async () => {
+      try {
+        const response = await fetch(`/api/reviews/user/${product.supplierId}`);
+        if (response.ok) {
+           const data = await response.json();
+           setReviews(data);
+        }
+      } catch (err) {
+        console.error("Fetch Reviews Error:", err);
+      }
+    };
+    fetchReviews();
+  }, [product]);
 
   const addToCart = async () => {
     if (!product) return;
@@ -182,6 +199,32 @@ export default function ProductDetailPage() {
                     <a href="#" className="text-xs text-blue-500 hover:underline mt-2 inline-block" title="This feature is in development">
                         View Transaction History (Coming Soon)
                     </a>
+                </div>
+
+                {/* --- Supplier Reviews Section --- */}
+                <div className="border-t border-gray-200 p-6 md:p-8 bg-gray-50">
+                    <h2 className="text-xl font-semibold text-gray-700 mb-4">Supplier Reviews</h2>
+                    {reviews.length === 0 ? (
+                        <p className="text-sm text-gray-500">No reviews yet for this supplier.</p>
+                    ) : (
+                        <div className="space-y-4">
+                            {reviews.map((review) => (
+                                <div key={review._id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                                    <div className="flex items-center mb-2">
+                                        <div className="flex text-yellow-400 text-sm">
+                                            {Array.from({ length: 5 }).map((_, i) => (
+                                                <span key={i}>{i < review.rating ? '★' : '☆'}</span>
+                                            ))}
+                                        </div>
+                                        <span className="ml-2 text-xs text-gray-400">
+                                            {new Date(review.createdAt).toLocaleDateString()}
+                                        </span>
+                                    </div>
+                                    {review.comment && <p className="text-sm text-gray-700">{review.comment}</p>}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
             </div>

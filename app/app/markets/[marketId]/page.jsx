@@ -6,47 +6,54 @@ import { useParams } from 'next/navigation';
 import { io } from 'socket.io-client';
 import Link from 'next/link';
 
-// --- Helper Hook for Countdown ---
 const useCountdown = (endTime) => {
-    const [timeLeft, setTimeLeft] = useState(endTime - Date.now());
+    const [timeLeft, setTimeLeft] = useState(0);
 
     useEffect(() => {
-        if (timeLeft <= 0) return;
+        if (!endTime) return;
+        
+        const updateTimer = () => setTimeLeft(endTime - Date.now());
+        updateTimer(); // Initial update when endTime loads
+
         const intervalId = setInterval(() => {
-            setTimeLeft(endTime - Date.now());
+            if (endTime - Date.now() <= 0) {
+                clearInterval(intervalId);
+            }
+            updateTimer();
         }, 1000);
+
         return () => clearInterval(intervalId);
-    }, [endTime, timeLeft]);
+    }, [endTime]);
+
+    if (!endTime) return "Loading...";
+    if (timeLeft <= 0) return "Market Closed";
 
     const minutes = Math.floor((timeLeft / 1000 / 60) % 60);
     const seconds = Math.floor((timeLeft / 1000) % 60);
 
-    return timeLeft > 0 ? `${minutes}m ${seconds}s left` : "Market Closed";
+    return `${minutes}m ${seconds}s left`;
 };
 
 export default function MarketDetailPage() {
   const [market, setMarket] = useState(null);
   const [socket, setSocket] = useState(null);
-  const [myBid, setMyBid] = useState('');
+  const [buyQty, setBuyQty] = useState('1');
   const [message, setMessage] = useState('');
-  const [myUserId, setMyUserId] = useState(null); // Get user ID
+  const [myUserId, setMyUserId] = useState(null);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const params = useParams();
   const { marketId } = params;
-  const bidsEndRef = useRef(null); // Ref to scroll bids
+  const purchasesEndRef = useRef(null);
 
-  // Determine market end time
-  const marketEndTime = market ? market.startTime + market.duration : 0;
+  const marketEndTime = market ? new Date(market.startTime).getTime() + market.duration : 0;
   const timeLeftString = useCountdown(marketEndTime);
 
-  // Scroll bids to bottom
   const scrollToBottom = () => {
-    bidsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    purchasesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-   useEffect(scrollToBottom, [market?.bids]); // Scroll when bids update
-
+  useEffect(scrollToBottom, [market?.purchases]);
 
   useEffect(() => {
     const token = localStorage.getItem('authToken');
@@ -55,15 +62,14 @@ export default function MarketDetailPage() {
         setIsLoading(false);
         return;
     }
-     // Decode token locally
     try {
         const base64Url = token.split('.')[1];
         const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
         const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
         setMyUserId(JSON.parse(jsonPayload).id);
-    } catch(e) { console.error("Error decoding token:", e)}
+    } catch(e) {}
 
-    const newSocket = io(process.env.NEXT_PUBLIC_COMMUNITY_API_URL, {
+    const newSocket = io(process.env.NEXT_PUBLIC_COMMUNITY_API_URL || 'http://localhost:3005', {
       auth: { token }
     });
     setSocket(newSocket);
@@ -71,163 +77,107 @@ export default function MarketDetailPage() {
 
     newSocket.emit('join_market', marketId);
 
-    // Initial market state might come from an API call or first socket event
-    // For now, we rely on 'market_update'
-    
     newSocket.on('market_update', (marketData) => {
       setMarket(marketData);
-      setIsLoading(false); // Stop loading once we have data
+      setIsLoading(false);
     });
 
     newSocket.on('market_closed', () => {
-        setMessage('This market has ended.');
-        setMarket(prev => prev ? { ...prev, closed: true } : null); // Mark as closed
+        setMessage('This market has ended or sold out.');
+        setMarket(prev => prev ? { ...prev, closed: true } : null);
         setIsLoading(false);
     });
 
-    newSocket.on('bid_accepted', (data) => {
-        alert(`Bid Accepted! ${data.message}`);
-         setMessage(`Bid for ₹${data.price} accepted from Vendor ${data.vendorId.substring(0,6)}... Market closed.`);
-         setMarket(prev => prev ? { ...prev, closed: true } : null);
+    newSocket.on('market_purchase', (data) => {
+         setMessage(`Notification: ${data.message}`);
+    });
+
+    newSocket.on('market_error', (data) => {
+        setMessage(`Error: ${data.message}`);
+        setError(`Error: ${data.message}`);
+        setIsLoading(false);
     });
     
      newSocket.on('connect_error', (err) => {
-        console.error("Socket connection error:", err.message);
-        setError("Could not connect to the market service.");
+        setError(`WebSocket Connection Failed: ${err.message}. Please click the browser refresh button.`);
         setIsLoading(false);
     });
 
     return () => newSocket.disconnect();
   }, [marketId]);
 
-  const handleMakeBid = (e) => {
+  const handleBuy = (e) => {
     e.preventDefault();
-    const bidAmount = parseFloat(myBid);
-    if (socket && market && !market.closed && bidAmount > 0 && bidAmount > (market.currentPrice || 0)) {
-        // Simple validation: bid must be higher than current price if exists
-      socket.emit('make_bid', { marketId, bidAmount });
-      setMessage(`You bid ₹${bidAmount}`);
-      setMyBid(''); // Clear input after bid
-    } else if (bidAmount <= (market?.currentPrice || 0)) {
-        setMessage('Your bid must be higher than the starting price.');
+    const qty = parseInt(buyQty, 10);
+    if (socket && market && !market.closed && qty > 0) {
+      if (qty > market.stockQuantity) {
+          setMessage(`Cannot buy more than ${market.stockQuantity} items.`);
+          return;
+      }
+      socket.emit('buy_product', { marketId, quantity: qty });
+      setBuyQty('1');
     }
   };
 
-  const handleAcceptBid = (vendorId) => {
-      if (socket && market && !market.closed && myUserId === market.supplierId) {
-          socket.emit('accept_bid', { marketId, vendorId });
-      } else {
-          setMessage("Only the supplier can accept bids.");
-      }
-  };
-
-  // --- Render Logic ---
-  if (isLoading) {
-       return (
-        <div className="min-h-screen bg-gray-100 p-4 sm:p-8 flex items-center justify-center">
-             <p className="text-gray-600">Connecting to market...</p>
-        </div>
-    );
-  }
-   if (error) {
-       return (
-        <div className="min-h-screen bg-gray-100 p-4 sm:p-8">
-            <Link href="/markets" className="text-blue-600 hover:underline mb-4 inline-block">&larr; Back to Markets</Link>
-            <p className="text-center text-red-600 mt-10">Error: {error}</p>
-        </div>
-       );
-   }
-   // Handle case where market data hasn't arrived yet but loading is false (e.g., market closed before join)
-   if (!market && !isLoading) {
-        return (
-            <div className="min-h-screen bg-gray-100 p-4 sm:p-8">
-                 <Link href="/markets" className="text-blue-600 hover:underline mb-4 inline-block">&larr; Back to Markets</Link>
-                 <p className="text-center text-gray-500 mt-10">{message || "Market not found or has ended."}</p>
-            </div>
-        );
-   }
-
+  if (isLoading) return <div className="min-h-screen bg-gray-100 flex items-center justify-center">Loading...</div>;
+  if (error) return <div className="min-h-screen p-8 text-red-600">{error}</div>;
+  if (!market) return <div className="min-h-screen p-8 text-gray-500">Market not found or has ended.</div>;
 
   const isSupplier = myUserId === market?.supplierId;
-  const isMarketClosed = market?.closed || timeLeftString === "Market Closed";
+  const isMarketClosed = market?.closed || timeLeftString === "Market Closed" || market.stockQuantity <= 0;
 
   return (
     <div className="min-h-screen bg-gray-100 font-inter p-4 sm:p-8">
        <div className="container mx-auto max-w-3xl bg-white rounded-lg shadow-xl p-6">
-            {/* Header */}
             <div className="flex justify-between items-center mb-4 pb-4 border-b">
-                <Link href="/markets" className="text-blue-600 hover:underline text-sm">
-                    &larr; Back to Markets
-                </Link>
+                <Link href="/markets" className="text-blue-600 hover:underline text-sm">&larr; Back to Markets</Link>
                 <div className={`text-sm font-semibold px-3 py-1 rounded-full ${isMarketClosed ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                    {timeLeftString}
+                    {isMarketClosed ? "Closed" : timeLeftString}
                 </div>
             </div>
 
-            {/* Market Info */}
             <div className="text-center mb-6">
-                 <h1 className="text-3xl font-bold text-gray-800">{market.productName}</h1>
+                 <span className="text-xs font-semibold uppercase tracking-wider text-red-600 bg-red-100 px-3 py-1 rounded-full animate-pulse shadow-sm border border-red-200">● LIVE SELLING</span>
+                 <h1 className="text-3xl font-bold text-gray-800 mt-4">{market.productName}</h1>
                  <p className="text-sm text-gray-500 mt-1">Market ID: {market.marketId.substring(0,8)}...</p>
-                 <p className="text-lg text-green-700 font-semibold mt-2">Starting Price: ₹{market.currentPrice.toFixed(2)}</p>
-                 {message && <p className={`mt-2 text-sm ${message.includes('Error') ? 'text-red-600' : 'text-blue-600'}`}>{message}</p>}
+                 <div className="mt-4 flex justify-center gap-6">
+                    <p className="text-xl text-green-700 font-bold bg-green-50 px-4 py-2 rounded-lg border border-green-200">Price: ₹{market.price.toFixed(2)}</p>
+                    <p className="text-xl text-blue-700 font-bold bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">Stock: {market.stockQuantity}</p>
+                 </div>
+                 {message && <p className={`mt-4 font-semibold text-sm ${message.includes('Error') ? 'text-red-600' : 'text-blue-600'}`}>{message}</p>}
             </div>
 
-            {/* Bidding Area (for Vendors) */}
             {!isSupplier && !isMarketClosed && (
                 <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
-                    <h3 className="text-lg font-semibold text-gray-700 mb-3">Place Your Bid</h3>
-                    <form onSubmit={handleMakeBid} className="flex gap-3 items-center">
+                    <h3 className="text-lg font-semibold text-gray-700 mb-3">Buy Now</h3>
+                    <form onSubmit={handleBuy} className="flex gap-3 items-center">
                          <div className="relative flex-grow">
-                             <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">₹</span>
-                             <input
-                                type="number"
-                                step="0.01"
-                                min={market.currentPrice + 0.01} // Bid must be higher
-                                value={myBid}
-                                onChange={(e) => setMyBid(e.target.value)}
-                                placeholder={`Higher than ₹${market.currentPrice.toFixed(2)}`}
-                                required
-                                className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                             />
+                             <input type="number" step="1" min="1" max={market.stockQuantity} value={buyQty} onChange={(e) => setBuyQty(e.target.value)} required className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500" />
                         </div>
                         <button type="submit" className="px-5 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition shadow whitespace-nowrap">
-                            Place Bid
+                            Buy @ ₹{market.price.toFixed(2)}
                         </button>
                     </form>
                 </div>
             )}
-             {isMarketClosed && <p className="text-center text-red-600 font-semibold mb-6">Bidding is closed for this market.</p>}
+            
+            {isMarketClosed && <p className="text-center text-red-600 font-semibold mb-6">This market session is over.</p>}
 
-
-            {/* List of Current Bids */}
-            <div className="border border-gray-200 rounded-lg p-4 max-h-60 overflow-y-auto">
-                <h3 className="text-lg font-semibold text-gray-700 mb-3 sticky top-0 bg-white pb-2">Current Bids</h3>
-                {Object.keys(market.bids).length === 0 ? (
-                     <p className="text-sm text-gray-500">No bids placed yet.</p>
+            <div className="border border-gray-200 rounded-lg p-4 max-h-60 overflow-y-auto bg-gray-50 flex flex-col gap-2">
+                <h3 className="text-lg font-semibold text-gray-700 mb-2 sticky top-0 bg-gray-50 pb-2 z-10 border-b border-gray-200">Live Purchases</h3>
+                {!market.purchases || market.purchases.length === 0 ? (
+                     <p className="text-sm text-gray-500 italic">No purchases yet...</p>
                  ) : (
-                    // Sort bids highest first
-                    Object.entries(market.bids)
-                        .sort(([, a], [, b]) => b.bidAmount - a.bidAmount)
-                        .map(([vendorId, bidInfo]) => (
-                            <div key={vendorId} className="flex justify-between items-center py-2 border-b border-gray-100 text-sm">
-                                <span>
-                                    Vendor ({bidInfo.userEmail?.split('@')[0] ?? vendorId.substring(0,6)}...):
-                                    <span className="font-semibold text-green-700 ml-2">₹{bidInfo.bidAmount.toFixed(2)}</span>
-                                </span>
-                                {/* Accept button only shown to the supplier and if market is open */}
-                                {isSupplier && !isMarketClosed && (
-                                    <button
-                                        onClick={() => handleAcceptBid(vendorId)}
-                                        className="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 transition shadow-sm"
-                                    >
-                                        Accept Bid
-                                    </button>
-                                )}
-                            </div>
-                        ))
+                    market.purchases.map((p, idx) => (
+                        <div key={idx} className="flex justify-between items-center py-2 px-3 bg-white border border-gray-100 rounded shadow-sm text-sm">
+                            <span className="font-medium text-gray-800">
+                                Vendor <span className="text-blue-600">{(p.userEmail?.split('@')[0] || p.userId.substring(0,6))}</span> bought <span className="font-bold text-green-700">{p.quantity}x</span>
+                            </span>
+                            <span className="text-xs text-gray-400">{new Date(p.purchasedAt).toLocaleTimeString()}</span>
+                        </div>
+                    ))
                 )}
-                 {/* Dummy div to ensure scrollIntoView works */}
-                 <div ref={bidsEndRef} />
+                 <div ref={purchasesEndRef} />
             </div>
        </div>
     </div>

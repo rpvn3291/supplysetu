@@ -6,6 +6,9 @@ let channel = null;
 const connectToRabbitMQ = async () => {
   try {
     const connection = await amqp.connect(process.env.AMQP_URL);
+    connection.on('error', (err) => {
+      console.error('RabbitMQ connection error:', err);
+    });
     channel = await connection.createChannel();
     // Assert a queue for review creation events
     await channel.assertQueue('review.created', { durable: true });

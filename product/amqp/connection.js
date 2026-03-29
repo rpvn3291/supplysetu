@@ -6,6 +6,9 @@ let channel = null;
 const connectToRabbitMQ = async () => {
   try {
     const connection = await amqp.connect(process.env.AMQP_URL);
+    connection.on('error', (err) => {
+      console.error('RabbitMQ connection error:', err);
+    });
     channel = await connection.createChannel();
     // Assert queues for both order and product events
     await channel.assertQueue('order.created', { durable: true });

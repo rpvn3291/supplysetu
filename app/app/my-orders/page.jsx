@@ -120,11 +120,13 @@ export default function MyOrdersPage() {
                         Get Product Support (N/A)
                       </button>
                       {/* Link to a potential review page/modal */}
-                      <Link href={`/reviews/new?orderId=${order.id}&supplierId=${order.supplierId}`} legacyBehavior>
-                        <a className="w-full text-center px-4 py-2 bg-yellow-400 text-yellow-900 text-sm font-medium rounded-md hover:bg-yellow-500 transition shadow-sm">
-                           Write a Product Review
-                        </a>
-                      </Link>
+                      {order.status === 'DELIVERED' && (
+                        <Link href={`/reviews/new?orderId=${order.id}&supplierId=${order.supplierId}`} legacyBehavior>
+                          <a className="w-full text-center px-4 py-2 bg-yellow-400 text-yellow-900 text-sm font-medium rounded-md hover:bg-yellow-500 transition shadow-sm">
+                             Write a Product Review
+                          </a>
+                        </Link>
+                      )}
                     </div>
                   </div>
                 </div>

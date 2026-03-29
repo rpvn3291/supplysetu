@@ -5,6 +5,9 @@ const Product = require('../models/productModel'); // We need our Mongoose model
 const connectAndConsume = async () => {
   try {
     const connection = await amqp.connect(process.env.AMQP_URL);
+    connection.on('error', (err) => {
+      console.error('RabbitMQ connection error in consumer:', err);
+    });
     const channel = await connection.createChannel();
 
     // The queue name MUST match the one used by the order service

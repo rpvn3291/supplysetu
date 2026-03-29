@@ -2,6 +2,8 @@ import React, { useContext, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { CartContext } from '../context/CartContext';
 import { api } from '../services/api';
+import * as WebBrowser from 'expo-web-browser';
+import * as SecureStore from 'expo-secure-store';
 
 /**
  * CART SCREEN
@@ -10,6 +12,7 @@ import { api } from '../services/api';
 export default function CartScreen() {
   const { cart, total, removeFromCart, clearCart } = useContext(CartContext);
   const [loading, setLoading] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('ONLINE'); // Default to ONLINE
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
@@ -26,21 +29,49 @@ export default function CartScreen() {
         unitOfMeasure: i.unit 
       })),
       vendorLocationLat: 17.3850, 
-      vendorLocationLon: 78.4867
+      vendorLocationLon: 78.4867,
+      paymentMethod // Pass the selected payment method
     };
 
-    try {
-      const res = await api.post('/orders', orderData);
-      if (res.id || res._id) {
-        Alert.alert("Success 🚀", "Supply order has been broadcasted to the supplier!");
-        clearCart();
-      } else {
-        Alert.alert("Order Failed", res.message || "Could not process checkout.");
-      }
-    } catch (e) {
-      Alert.alert("Network Error", "Check if your Order Microservice is running.");
-    } finally {
-      setLoading(false);
+    if (paymentMethod === 'ONLINE') {
+        try {
+            const token = await SecureStore.getItemAsync('userToken');
+            if (!token) throw new Error("Not logged in");
+            
+            // Build the URL for the external secure checkout wrapper
+            const encodedOrderData = encodeURIComponent(JSON.stringify(orderData));
+            // Assuming the Vendor Web App runs on the standard local IP/Port 3000
+            const NEXT_JS_URL = api.client.defaults.baseURL.replace('3003/api', '3000'); 
+            const checkoutUrl = `${NEXT_JS_URL}/mobile-checkout?amount=${total}&token=${token}&orderData=${encodedOrderData}`;
+            
+            // Open the Expo secure browser
+            const result = await WebBrowser.openBrowserAsync(checkoutUrl);
+            
+            // When user returns, we assume the wrapper handled success. 
+            // We just clear cart and let them check their "My Orders".
+            Alert.alert("Checkout Completed", "Check your Orders tab to see the latest status!");
+            clearCart();
+        } catch (e) {
+            console.error("Payment Link Error:", e);
+            Alert.alert("Checkout Error", e.message || "Failed to open secure checkout");
+        } finally {
+            setLoading(false);
+        }
+    } else {
+        // Fallback to cash on delivery immediate order creation
+        try {
+          const res = await api.post('/orders', orderData);
+          if (res.id || res._id) {
+            Alert.alert("Success 🚀", "Supply order has been broadcasted to the supplier!");
+            clearCart();
+          } else {
+            Alert.alert("Order Failed", res.message || "Could not process checkout.");
+          }
+        } catch (e) {
+          Alert.alert("Network Error", "Check if your Order Microservice is running.");
+        } finally {
+          setLoading(false);
+        }
     }
   };
 
@@ -71,6 +102,22 @@ export default function CartScreen() {
         )}
       />
       <View style={styles.footer}>
+        <Text style={styles.paymentTitle}>Payment Method</Text>
+        <View style={styles.paymentRow}>
+          <TouchableOpacity 
+            style={[styles.paymentBtn, paymentMethod === 'ONLINE' && styles.paymentActive]} 
+            onPress={() => setPaymentMethod('ONLINE')}
+          >
+            <Text style={[styles.paymentText, paymentMethod === 'ONLINE' && styles.paymentTextActive]}>Credit/UPI</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.paymentBtn, paymentMethod === 'CASH' && styles.paymentActive]} 
+            onPress={() => setPaymentMethod('CASH')}
+          >
+            <Text style={[styles.paymentText, paymentMethod === 'CASH' && styles.paymentTextActive]}>Cash on Delivery</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>Grand Total:</Text>
           <Text style={styles.totalAmount}>₹{total.toFixed(2)}</Text>
@@ -98,5 +145,11 @@ const styles = StyleSheet.create({
   totalLabel: { fontSize: 18, color: '#6b7280' },
   totalAmount: { fontSize: 24, fontWeight: 'bold', color: '#111827' },
   checkoutBtn: { backgroundColor: '#16a34a', padding: 18, borderRadius: 15, alignItems: 'center' },
-  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 18 }
+  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 18 },
+  paymentTitle: { fontSize: 16, fontWeight: 'bold', color: '#374151', marginBottom: 10 },
+  paymentRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  paymentBtn: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#d1d5db', alignItems: 'center' },
+  paymentActive: { backgroundColor: '#fef3c7', borderColor: '#f59e0b' },
+  paymentText: { color: '#6b7280', fontWeight: 'bold' },
+  paymentTextActive: { color: '#b45309' }
 });

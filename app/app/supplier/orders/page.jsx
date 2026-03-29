@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { io } from 'socket.io-client';
+
+const SOCKET_URL = process.env.NEXT_PUBLIC_COMMUNITY_URL || 'http://localhost:3005';
 
 /**
  * SUPPLY SETU - SUPPLIER INCOMING ORDERS
@@ -13,6 +16,7 @@ export default function IncomingOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusLoading, setStatusLoading] = useState(null); // Tracks which order is updating
+  const [activeTracking, setActiveTracking] = useState({}); // { orderId: { lat, lon, time } }
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -50,6 +54,36 @@ export default function IncomingOrdersPage() {
   useEffect(() => {
     fetchOrders();
   }, []);
+
+  // Set up socket listener for live tracking only once
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    const socket = io(SOCKET_URL, {
+      auth: { token }
+    });
+
+    socket.on('connect', () => {
+      // Find orders that are SHIPPED and join their tracking rooms
+      orders.forEach(o => {
+        if (o.status === 'SHIPPED') {
+          socket.emit('join_tracking_room', o.id);
+        }
+      });
+    });
+
+    socket.on('location_update', (data) => {
+      setActiveTracking(prev => ({
+        ...prev,
+        [data.orderId]: { lat: data.latitude, lon: data.longitude, time: data.timestamp }
+      }));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [orders]);
 
   const handleUpdateStatus = async (orderId, newStatus) => {
     setStatusLoading(orderId);
@@ -135,7 +169,6 @@ export default function IncomingOrdersPage() {
                       {order.status}
                     </div>
                     
-                    {/* Actions */}
                     {order.status === 'PENDING' && (
                       <button 
                         onClick={() => handleUpdateStatus(order.id, 'CONFIRMED')}
@@ -146,13 +179,24 @@ export default function IncomingOrdersPage() {
                       </button>
                     )}
                     {order.status === 'CONFIRMED' && (
-                      <button 
-                        onClick={() => handleUpdateStatus(order.id, 'SHIPPED')}
-                        disabled={statusLoading === order.id}
-                        className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition"
-                      >
-                        {statusLoading === order.id ? 'Updating...' : 'Mark Shipped'}
-                      </button>
+                      <div className="text-gray-500 text-sm font-medium italic">
+                        Waiting for driver dispatch...
+                      </div>
+                    )}
+                    {order.status === 'SHIPPED' && (
+                      <div className="flex flex-col items-end gap-2">
+                        <div className="text-blue-600 text-sm font-bold border border-blue-200 bg-blue-50 px-3 py-1 rounded">
+                          Driver in Transit
+                        </div>
+                        {activeTracking[order.id] ? (
+                          <div className="text-xs text-blue-800 bg-blue-50 px-2 py-1 rounded border border-blue-100 mt-1 text-right">
+                             📡 Location: {activeTracking[order.id].lat.toFixed(4)}, {activeTracking[order.id].lon.toFixed(4)}<br/>
+                             <span className="text-gray-500">Last Ping: {new Date(activeTracking[order.id].time).toLocaleTimeString()}</span>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-400 mt-1">Waiting for driver GPS ping...</div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

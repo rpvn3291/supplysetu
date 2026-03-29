@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
 /**
@@ -5,8 +6,16 @@ import * as SecureStore from 'expo-secure-store';
  * This handles all communication with your backend microservices.
  */
 
-// REPLACE WITH YOUR ACTUAL IP ADDRESS (e.g., http://192.168.1.5:3000/api)
-const BASE_URL = "http://192.168.29.42:3000/api"; 
+// Production Gateway URL
+const BASE_URL = "https://supplysetu-lzxv.onrender.com/api"; 
+
+/*
+// Local Development logic (commented out for now as requested)
+import Constants from 'expo-constants';
+const debuggerHost = Constants.expoConfig?.hostUri;
+const localhost = debuggerHost?.split(':')[0];
+const DEV_BASE_URL = __DEV__ && localhost ? `http://${localhost}:3000/api` : BASE_URL;
+*/
 
 export const api = {
   /**

@@ -8,7 +8,8 @@ const SupplierNav = () => (
         <Link href="/supplier/products" className="hover:bg-gray-700 p-2 rounded">Manage Products</Link>
         <Link href="/supplier/orders" className="hover:bg-gray-700 p-2 rounded">Incoming Orders</Link>
         <Link href="/markets" className="hover:bg-gray-700 p-2 rounded">Live Markets</Link>
-        {/* Add links to Reviews, Settings later */}
+        <Link href="/supplier/reviews" className="hover:bg-gray-700 p-2 rounded">My Reviews</Link>
+        {/* Add links to Settings later */}
         <hr className="border-gray-600 my-2"/>
         <Link href="/" className="text-sm hover:bg-gray-700 p-2 rounded">&larr; Back to Home</Link>
     </nav>

@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Script from 'next/script';
 
 // --- Icons (Inline SVGs) ---
 const CartIcon = () => (
@@ -238,11 +239,14 @@ export default function ProductsPage() {
         return;
     }
 
+    const totalAmount = cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+
     const orderData = {
       supplierId: supplierId,
       vendorLocationLat: vendorProfile.profile.latitude,
       vendorLocationLon: vendorProfile.profile.longitude,
-      totalPrice: cart.reduce((total, item) => total + (item.price * item.quantity), 0),
+      totalPrice: totalAmount,
+      paymentMethod: 'ONLINE', // Web app only supports online payment right now
       orderItems: cart.map(({ productId, quantity, price, unit }) => ({
           productId, quantity, price: price || 0, unitOfMeasure: unit || 'N/A'
       })),
@@ -250,28 +254,89 @@ export default function ProductsPage() {
     };
 
     try {
-      const orderResponse = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(orderData),
+      // 1. Initiate Payment Order on Backend
+      setMessage('Initiating secure payment...');
+      const rzpOrderResponse = await fetch('/api/orders/create-payment', { // proxy through to order microservice
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+         body: JSON.stringify({ amount: totalAmount })
       });
 
-      const responseText = await orderResponse.text();
-      let newOrder;
-      try { newOrder = JSON.parse(responseText); }
-      catch (parseError) { throw new Error(`Failed to parse order response: ${responseText}`); }
+      if (!rzpOrderResponse.ok) {
+         throw new Error('Failed to initiate Razorpay payment intent');
+      }
 
-      if (!orderResponse.ok) throw new Error(newOrder.message || responseText || 'Failed to place order');
+      const orderOptions = await rzpOrderResponse.json();
 
-      const clearCartResponse = await fetch('/api/cart', {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` }
+      // 2. Open Razorpay Checkout Window
+      const rzpOptions = {
+         key: 'rzp_test_SUNfXUR78kYFBd',
+         amount: orderOptions.amount,
+         currency: orderOptions.currency,
+         name: "SupplySetu",
+         description: "Vendor Replenishment Order",
+         order_id: orderOptions.id,
+         handler: async function (response) {
+            setMessage('Payment received, verifying and creating order...');
+            
+            try {
+               // 3. Verify Payment
+               const verifyRes = await fetch('/api/orders/verify-payment', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                  body: JSON.stringify({
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_signature: response.razorpay_signature
+                  })
+               });
+
+               if (!verifyRes.ok) throw new Error("Payment signature verification failed!");
+
+               // 4. Submit Order to Backend
+               const orderResponse = await fetch('/api/orders', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                 body: JSON.stringify(orderData),
+               });
+
+               const responseText = await orderResponse.text();
+               let newOrder;
+               try { newOrder = JSON.parse(responseText); }
+               catch (parseError) { throw new Error(`Failed to parse order response: ${responseText}`); }
+
+               if (!orderResponse.ok) throw new Error(newOrder.message || responseText || 'Failed to place order');
+
+               const clearCartResponse = await fetch('/api/cart', {
+                   method: 'DELETE',
+                   headers: { 'Authorization': `Bearer ${token}` }
+               });
+               if (!clearCartResponse.ok) throw new Error('Failed to clear cart after order');
+
+               setMessage(`Payment Successful! Order placed successfully! Order ID: ${newOrder.id}`);
+               setCart([]); // Immediately clear local cart
+               setIsCartOpen(false); // Close cart drawer
+
+            } catch(e) {
+               setError(e.message);
+               setMessage('Order finalization failed.');
+            }
+         },
+         prefill: {
+            name: vendorProfile.profile.firstName + " " + vendorProfile.profile.lastName,
+            email: vendorProfile.email,
+            contact: vendorProfile.profile.phoneNumber
+         },
+         theme: { color: "#16a34a" }
+      };
+
+      const rzp = new window.Razorpay(rzpOptions);
+      rzp.on('payment.failed', function (response){
+        setError(`Payment failed: ${response.error.description}`);
+        setMessage('Order cancelled.');
       });
-      if (!clearCartResponse.ok) throw new Error('Failed to clear cart after order');
+      rzp.open();
 
-      setMessage(`Order placed successfully! Order ID: ${newOrder.id}`);
-      setCart([]); // Immediately clear local cart
-      setIsCartOpen(false); // Close cart drawer
     } catch (err) {
         console.error("Place Order Error:", err);
         setMessage(`Error placing order: ${err.message}`);
@@ -306,6 +371,7 @@ export default function ProductsPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 font-inter">
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
       {/* Header Bar */}
       <header className="bg-white shadow-md sticky top-0 z-10 py-3 px-4">
           <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">

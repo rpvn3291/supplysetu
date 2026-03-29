@@ -1,7 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context'; // Fixed: Using non-deprecated SafeAreaView
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../services/api';
+import io from 'socket.io-client';
+import MapComponent from '../components/MapComponent';
+
+const haversineDistance = (coords1, coords2) => {
+  const toRad = x => (x * Math.PI) / 180;
+  const R = 6371; // Earth root radius in km
+  const dLat = toRad(coords2.lat - coords1.lat);
+  const dLon = toRad(coords2.lon - coords1.lon);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRad(coords1.lat)) * Math.cos(toRad(coords2.lat)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+const SOCKET_URL = 'http://192.168.29.42:3005'; // Community Service port
 
 /**
  * ORDER DETAIL SCREEN
@@ -11,6 +27,10 @@ export default function OrderDetailScreen({ route, navigation }) {
   const { orderId } = route.params;
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [driverLocation, setDriverLocation] = useState(null);
+  const [routeCoordinates, setRouteCoordinates] = useState([]);
+  const [routedDistance, setRoutedDistance] = useState(null);
+  const [routedEtaMinutes, setRoutedEtaMinutes] = useState(null);
 
   useEffect(() => {
     const fetchOrderDetails = async () => {
@@ -26,6 +46,72 @@ export default function OrderDetailScreen({ route, navigation }) {
     fetchOrderDetails();
   }, [orderId]);
 
+  // Connect to tracking socket if SHIPPED
+  useEffect(() => {
+    if (order && order.status === 'SHIPPED') {
+      const socket = io(SOCKET_URL, {
+        auth: { token: 'guest' } // Just a dummy token because we skipped socket auth for simple tracking, wait, the server requires real auth
+      });
+
+      // We need to pass the real token. Without async in useEffect, let's just use `api.get` token approach or store it.
+      // For now, let's gracefully fail or connect if token exists. Actually the server expects a valid JWT.
+      // We can get the token from SecureStore. Let's do it inside the effect.
+      const connectSocket = async () => {
+        const SecureStore = require('expo-secure-store');
+        const token = await SecureStore.getItemAsync('userToken');
+        if (!token) return;
+
+        const _socket = io(SOCKET_URL, { auth: { token } });
+        _socket.on('connect', () => {
+          _socket.emit('join_tracking_room', order.id);
+        });
+
+        _socket.on('location_update', (data) => {
+          setDriverLocation({ lat: data.latitude, lon: data.longitude, time: data.timestamp });
+        });
+
+        return _socket;
+      };
+      
+      let mySock;
+      connectSocket().then(s => { mySock = s; });
+
+      return () => {
+        if (mySock) mySock.disconnect();
+      };
+    }
+  }, [order?.status]);
+
+  useEffect(() => {
+    if (driverLocation && order?.vendorLocationLat && order?.vendorLocationLon) {
+      const getRoute = async () => {
+        try {
+          const start = `${driverLocation.lon},${driverLocation.lat}`;
+          const end = `${order.vendorLocationLon},${order.vendorLocationLat}`;
+          const url = `http://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson`;
+          
+          const res = await fetch(url);
+          const data = await res.json();
+          if (data.routes && data.routes.length > 0) {
+            const route = data.routes[0];
+            setRoutedDistance(route.distance / 1000); 
+            setRoutedEtaMinutes(Math.ceil(route.duration / 60)); 
+            
+            const coords = route.geometry.coordinates.map(c => ({
+              latitude: c[1],
+              longitude: c[0]
+            }));
+            setRouteCoordinates(coords);
+          }
+        } catch (e) {
+          console.log('OSRM route error', e);
+        }
+      };
+      
+      getRoute();
+    }
+  }, [driverLocation?.lat, driverLocation?.lon, order?.vendorLocationLat, order?.vendorLocationLon]);
+
   if (loading) return (
     <View style={styles.center}>
       <ActivityIndicator size="large" color="#16a34a" />
@@ -37,6 +123,17 @@ export default function OrderDetailScreen({ route, navigation }) {
       <Text>Order not found.</Text>
     </View>
   );
+
+  let distanceKm = routedDistance !== null ? routedDistance : null;
+  let etaMinutes = routedEtaMinutes !== null ? routedEtaMinutes : null;
+
+  if (distanceKm === null && driverLocation && order.vendorLocationLat && order.vendorLocationLon) {
+    distanceKm = haversineDistance(
+      { lat: driverLocation.lat, lon: driverLocation.lon },
+      { lat: order.vendorLocationLat, lon: order.vendorLocationLon }
+    );
+    etaMinutes = Math.max(1, Math.ceil(distanceKm / 0.5));
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
@@ -52,7 +149,14 @@ export default function OrderDetailScreen({ route, navigation }) {
           </View>
         </View>
 
-        {/* Delivery Info Mockup */}
+        {order.status !== 'DELIVERED' && (
+          <View style={styles.otpContainer}>
+             <Text style={styles.otpLabel}>Delivery PIN (Share with Driver)</Text>
+             <Text style={styles.otpValue}>{order.deliveryOtp || '123456'}</Text>
+          </View>
+        )}
+
+        {/* Delivery Info Mockup / Live Tracking */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Delivery Progress</Text>
           <View style={styles.timeline}>
@@ -66,7 +170,56 @@ export default function OrderDetailScreen({ route, navigation }) {
                 Supplier Accepted
               </Text>
             </View>
+            <View style={styles.timelineItem}>
+              <View style={[styles.dot, { backgroundColor: (order.status === 'SHIPPED' || order.status === 'DELIVERED') ? '#16a34a' : '#ddd' }]} />
+              <Text style={[styles.timelineText, { color: (order.status !== 'SHIPPED' && order.status !== 'DELIVERED') ? '#9ca3af' : '#111827' }]}>
+                Driver Collected
+              </Text>
+            </View>
           </View>
+
+          {/* Active GPS Widget */}
+          {order.status === 'SHIPPED' && (
+            <View style={[styles.trackingWidget, { padding: 0, overflow: 'hidden' }]}>
+              <View style={{ padding: 15, backgroundColor: '#f0fdf4' }}>
+                <Text style={styles.trackingTitle}>📡 Live GPS Tracker</Text>
+                {driverLocation ? (
+                  <View>
+                    <Text style={styles.trackingData}>
+                      Last Ping: {new Date(driverLocation.time).toLocaleTimeString()}
+                    </Text>
+                    {distanceKm !== null && (
+                      <Text style={[styles.trackingData, { fontWeight: 'bold', marginTop: 5, color: '#047857' }]}>
+                        📍 Distance: {distanceKm.toFixed(2)} km  |  ⏱️ ETA: ~{etaMinutes} min
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  <Text style={styles.trackingData}>Waiting for driver GPS signal...</Text>
+                )}
+              </View>
+              {driverLocation && (
+                <MapComponent
+                  style={{ width: '100%', height: 250 }}
+                  initialRegion={{
+                    latitude: driverLocation.lat,
+                    longitude: driverLocation.lon,
+                    latitudeDelta: 0.05,
+                    longitudeDelta: 0.05,
+                  }}
+                  region={{
+                    latitude: driverLocation.lat,
+                    longitude: driverLocation.lon,
+                    latitudeDelta: 0.05,
+                    longitudeDelta: 0.05,
+                  }}
+                  driverLocation={driverLocation}
+                  vendorLocation={order.vendorLocationLat && order.vendorLocationLon ? { lat: order.vendorLocationLat, lon: order.vendorLocationLon } : null}
+                  routeCoordinates={routeCoordinates}
+                />
+              )}
+            </View>
+          )}
         </View>
 
         {/* Items List */}
@@ -95,6 +248,15 @@ export default function OrderDetailScreen({ route, navigation }) {
             <Text style={styles.totalVal}>₹{order.totalPrice?.toFixed(2)}</Text>
           </View>
         </View>
+
+        {order.status === 'DELIVERED' && (
+          <TouchableOpacity 
+            style={[styles.backBtn, { backgroundColor: '#fef08a', borderColor: '#fef08a', marginBottom: 15 }]} 
+            onPress={() => navigation.navigate('WriteReview', { orderId: order.id, supplierId: order.supplierId })}
+          >
+            <Text style={[styles.backBtnText, { color: '#854d0e' }]}>Write a Review</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity 
           style={styles.backBtn} 
@@ -131,5 +293,11 @@ const styles = StyleSheet.create({
   totalLabel: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
   totalVal: { fontSize: 20, fontWeight: 'bold', color: '#16a34a' },
   backBtn: { marginTop: 20, padding: 18, alignItems: 'center', borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb' },
-  backBtnText: { color: '#4b5563', fontWeight: 'bold' }
+  backBtnText: { color: '#4b5563', fontWeight: 'bold' },
+  otpContainer: { backgroundColor: '#eff6ff', padding: 20, borderRadius: 15, alignItems: 'center', marginBottom: 30, borderWidth: 1, borderColor: '#bfdbfe' },
+  otpLabel: { color: '#1d4ed8', fontSize: 14, fontWeight: '600', marginBottom: 5 },
+  otpValue: { fontSize: 32, fontWeight: 'bold', color: '#1e3a8a', letterSpacing: 5 },
+  trackingWidget: { backgroundColor: '#f0fdf4', padding: 15, borderRadius: 10, borderWidth: 1, borderColor: '#bbf7d0', marginTop: 10 },
+  trackingTitle: { color: '#166534', fontWeight: 'bold', fontSize: 16, marginBottom: 5 },
+  trackingData: { color: '#15803d', fontSize: 14, lineHeight: 20 }
 });

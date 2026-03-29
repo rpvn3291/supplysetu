@@ -26,7 +26,7 @@ const register = asyncHandler(async (req, res) => {
       email,
       passwordHash,
       role,
-      [role === 'VENDOR' ? 'vendorProfile' : 'supplierProfile']: {
+      [role === 'VENDOR' ? 'vendorProfile' : role === 'SUPPLIER' ? 'supplierProfile' : 'driverProfile']: {
         create: profileData,
       },
     },
@@ -85,6 +85,8 @@ const getMe = asyncHandler(async (req, res) => {
     profile = await prisma.vendorProfile.findUnique({ where: { userId } });
   } else if (req.user.role === 'SUPPLIER') {
     profile = await prisma.supplierProfile.findUnique({ where: { userId } });
+  } else if (req.user.role === 'DRIVER') {
+    profile = await prisma.driverProfile.findUnique({ where: { userId } });
   }
 
   if (!profile) {
@@ -115,6 +117,11 @@ const updateProfile = asyncHandler(async (req, res) => {
     });
   } else if (role === 'SUPPLIER') {
     updatedProfile = await prisma.supplierProfile.update({
+      where: { userId: id },
+      data: profileData,
+    });
+  } else if (role === 'DRIVER') {
+    updatedProfile = await prisma.driverProfile.update({
       where: { userId: id },
       data: profileData,
     });
@@ -152,6 +159,42 @@ const toggleKycStatus = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * @desc    Update Expo push token
+ * @route   PUT /api/auth/push-token
+ * @access  Private
+ */
+const updatePushToken = asyncHandler(async (req, res) => {
+  const { token } = req.body;
+  const { id } = req.user;
+  
+  await prisma.user.update({
+    where: { id },
+    data: { expoPushToken: token }
+  });
+
+  res.status(200).json({ message: 'Push token updated successfully' });
+});
+
+/**
+ * @desc    Fetch a user's expoPushToken (Internal use primarily)
+ * @route   GET /api/auth/internal/token/:userId
+ * @access  Public (Should be protected by internal microservice network rules in production)
+ */
+const getInternalUserToken = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { expoPushToken: true }
+  });
+
+  if (!user) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  res.status(200).json({ token: user.expoPushToken });
+});
 
 // Export all controller functions
 module.exports = {
@@ -159,6 +202,8 @@ module.exports = {
   login,
   getMe,
   updateProfile,
-  toggleKycStatus
+  toggleKycStatus,
+  updatePushToken,
+  getInternalUserToken
 };
 

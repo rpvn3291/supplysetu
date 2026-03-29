@@ -7,6 +7,9 @@ import jwt from 'jsonwebtoken';
 import connectDB from './config/db.js';
 import Community from './models/communityModel.js';
 import Message from './models/messageModel.js';
+import Poll from './models/pollModel.js';
+import BulkOrder from './models/bulkOrderModel.js';
+import LiveMarket from './models/liveMarketModel.js';
 
 // Connect to MongoDB
 connectDB();
@@ -22,16 +25,26 @@ const io = new Server(httpServer, {
   }
 });
 
-// --- In-memory storage for real-time features ---
-// Note: For production, consider storing polls and bulk orders in Redis or MongoDB
-// to prevent data loss on server restart.
-const polls = {}; // { roomName (pincode): { question, options: { 'Option A': 0, ... }, voters: [] } }
-const bulkOrders = {}; // { roomName (pincode): { productId, productName, commitments: { userId: quantity }, total: 0 } }
-const liveMarkets = {}; // { marketId (supplierId): { productId, productName, supplierId, currentPrice, bids: {}, timerId, startTime, duration } }
-
 // --- Market Window Configuration (IST) ---
-const MARKET_START_HOUR_IST = 6;  // 6 AM
-const MARKET_END_HOUR_IST = 18; // 6 PM (exclusive, so up to 17:59:59)
+const MARKET_START_HOUR_IST = 5;  // 5 AM
+const MARKET_END_HOUR_IST = 7; // 7 AM (exclusive, so up to 06:59:59)
+const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || "http://localhost:3003";
+
+// --- Background Job for Market Expiry ---
+const checkMarketExpiry = async () => {
+  try {
+    const expiredMarkets = await LiveMarket.find({
+      $expr: { $lt: [{ $add: ["$startTime", "$duration"] }, Date.now()] }
+    });
+    for (const market of expiredMarkets) {
+      io.emit('market_closed', { marketId: market.marketId });
+      await LiveMarket.findByIdAndDelete(market._id);
+    }
+  } catch (error) {
+    console.error("Error checking market expiry:", error);
+  }
+};
+setInterval(checkMarketExpiry, 60000); // Run every minute
 
 // --- Socket.IO Middleware for Authentication ---
 io.use((socket, next) => {
@@ -40,22 +53,35 @@ io.use((socket, next) => {
     console.error(`Authentication error: Token not provided for socket ${socket.id}`);
     return next(new Error('Authentication error: Token not provided'));
   }
+
+  // Bypass for driver prototype
+  if (token === "mock_token.eyJpZCI6ImRyaXZlcjEiLCJyb2xlIjoiRFJJVkVSIn0.mock_signature") {
+    socket.user = { id: 'driver_1', role: 'DRIVER' };
+    socket.token = token;
+    return next();
+  }
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) {
       console.error(`Authentication error: Invalid token for socket ${socket.id}`, err.message);
       return next(new Error('Authentication error: Invalid token'));
     }
-    socket.user = user; // Attach user payload (id, role, email) to the socket
+    socket.user = user; // Attach user payload (id, role, email)
+    socket.token = token; // Store token to pass downstream to Order Service
     next();
   });
 });
 
 // --- Main Connection Handler ---
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   console.log(`User connected: ${socket.id} (User ID: ${socket.user.id}, Role: ${socket.user.role})`);
 
-  // --- Send initial state on connection ---
-  socket.emit('active_markets_list', Object.values(liveMarkets));
+  try {
+    // --- Send active markets on connection ---
+    const activeMarkets = await LiveMarket.find({});
+    socket.emit('active_markets_list', activeMarkets);
+  } catch(e) {
+    console.error(e);
+  }
 
   // --- Community Chat Logic ---
   socket.on('join_room', async (pincode) => {
@@ -66,22 +92,22 @@ io.on('connection', (socket) => {
     try {
       let community = await Community.findOne({ pincode });
       if (!community) {
-        // First user becomes president
         community = await new Community({ pincode, presidentId: socket.user.id }).save();
         console.log(`New community for pincode ${pincode}. President is ${socket.user.id}`);
       }
       
-      // Fetch recent messages and send community info
       const recentMessages = await Message.find({ pincode }).sort({ createdAt: -1 }).limit(50);
-      socket.emit('chat_history', recentMessages.reverse()); // Send oldest first
+      socket.emit('chat_history', recentMessages.reverse()); 
       socket.emit('community_info', { presidentId: community.presidentId });
 
-      // Send current poll and bulk order if active in this room
-      if (polls[roomName]) socket.emit('poll_update', polls[roomName]);
-      if (bulkOrders[roomName]) socket.emit('bulk_order_update', bulkOrders[roomName]);
+      const currentPoll = await Poll.findOne({ pincode });
+      if (currentPoll) socket.emit('poll_update', currentPoll);
+
+      const currentBulkOrder = await BulkOrder.findOne({ pincode });
+      if (currentBulkOrder) socket.emit('bulk_order_update', currentBulkOrder);
 
     } catch (error) {
-        console.error(`Error joining room ${pincode} for user ${socket.id}:`, error);
+        console.error(`Error joining room ${pincode}:`, error);
         socket.emit('error_message', { message: 'Failed to join community room.' });
     }
   });
@@ -96,13 +122,12 @@ io.on('connection', (socket) => {
         message,
       }).save();
 
-      // Broadcast message to everyone in the room
       io.to(roomName).emit('receive_message', {
-        ...newMessage.toObject(), // Send the saved message object
+        ...newMessage.toObject(),
         isPresident: community?.presidentId === socket.user.id,
       });
     } catch (error) {
-        console.error(`Error sending message in room ${pincode} by user ${socket.id}:`, error);
+        console.error(`Error sending message:`, error);
         socket.emit('error_message', { message: 'Failed to send message.' });
     }
   });
@@ -115,183 +140,274 @@ io.on('connection', (socket) => {
       if (community?.presidentId !== socket.user.id) {
         return socket.emit('poll_error', { message: 'Only the community president can start a poll.' });
       }
-      if (polls[roomName]) {
+      
+      const existingPoll = await Poll.findOne({ pincode });
+      if (existingPoll) {
          return socket.emit('poll_error', { message: 'A poll is already active in this community.' });
       }
-      polls[roomName] = { question, options: options.reduce((acc, option) => ({ ...acc, [option]: 0 }), {}), voters: [] };
-      io.to(roomName).emit('new_poll', polls[roomName]); // Broadcast the new poll
+      
+      const optionsMap = options.reduce((acc, option) => ({ ...acc, [option]: 0 }), {});
+      const newPoll = await Poll.create({ pincode, question, options: optionsMap, voters: [] });
+      
+      io.to(roomName).emit('new_poll', newPoll);
     } catch (error) {
-       console.error(`Error starting poll in room ${pincode} by user ${socket.id}:`, error);
+       console.error(`Error starting poll:`, error);
        socket.emit('poll_error', { message: 'Failed to start poll.' });
     }
   });
 
-  socket.on('vote', ({ pincode, option }) => {
+  socket.on('vote', async ({ pincode, option }) => {
     const roomName = `pincode-${pincode}`;
-    const poll = polls[roomName];
-    if (poll && poll.options.hasOwnProperty(option) && !poll.voters.includes(socket.user.id)) {
-      poll.options[option]++;
+    try {
+      const poll = await Poll.findOne({ pincode });
+      if (!poll) return socket.emit('poll_error', { message: 'No active poll found.' });
+
+      if (poll.voters.includes(socket.user.id)) {
+        return socket.emit('poll_error', { message: 'You have already voted in this poll.' });
+      }
+
+      if (poll.options.get(option) === undefined) {
+         return socket.emit('poll_error', { message: 'Invalid option.' });
+      }
+
+      poll.options.set(option, poll.options.get(option) + 1);
       poll.voters.push(socket.user.id);
-      io.to(roomName).emit('poll_update', poll); // Broadcast updated results
-    } else if (poll && poll.voters.includes(socket.user.id)) {
-        socket.emit('poll_error', { message: 'You have already voted in this poll.' });
+      await poll.save();
+
+      io.to(roomName).emit('poll_update', poll); 
+    } catch(error) {
+      console.error('Error voting in poll:', error);
     }
   });
 
   // --- Bulk Order Logic ---
-   socket.on('start_bulk_order', async ({ pincode, productId, productName }) => {
+   socket.on('start_bulk_order', async ({ pincode, productId, productName, supplierId }) => {
     const roomName = `pincode-${pincode}`;
     try {
         const community = await Community.findOne({ pincode });
         if (community?.presidentId !== socket.user.id) {
             return socket.emit('bulk_order_error', { message: 'Only the community president can start a bulk order.' });
         }
-        if (bulkOrders[roomName]) {
+
+        const existingOrder = await BulkOrder.findOne({ pincode });
+        if (existingOrder) {
              return socket.emit('bulk_order_error', { message: 'A bulk order is already active in this community.' });
         }
-        bulkOrders[roomName] = { productId, productName, initiator: socket.user.id, commitments: {}, total: 0 };
-        io.to(roomName).emit('new_bulk_order', bulkOrders[roomName]);
+        
+        const newOrder = await BulkOrder.create({ pincode, productId, productName, supplierId, initiator: socket.user.id, commitments: {}, total: 0 });
+        io.to(roomName).emit('new_bulk_order', newOrder);
     } catch (error) {
-        console.error(`Error starting bulk order in room ${pincode} by user ${socket.id}:`, error);
+        console.error(`Error starting bulk order:`, error);
         socket.emit('bulk_order_error', { message: 'Failed to start bulk order.' });
     }
   });
 
-   socket.on('commit_to_bulk_order', ({ pincode, quantity }) => {
+   socket.on('commit_to_bulk_order', async ({ pincode, quantity }) => {
     const roomName = `pincode-${pincode}`;
-    const bulkOrder = bulkOrders[roomName];
     const userCommitment = parseInt(quantity, 10);
 
-    if (bulkOrder && Number.isInteger(userCommitment) && userCommitment >= 0) { // Allow committing 0 to withdraw
-      const oldQuantity = bulkOrder.commitments[socket.user.id] || 0;
-      bulkOrder.commitments[socket.user.id] = userCommitment;
+    if (!Number.isInteger(userCommitment) || userCommitment < 0) return;
+
+    try {
+      const bulkOrder = await BulkOrder.findOne({ pincode });
+      if (!bulkOrder) return;
+
+      const oldQuantity = bulkOrder.commitments.get(socket.user.id) || 0;
+      bulkOrder.commitments.set(socket.user.id, userCommitment);
       bulkOrder.total = (bulkOrder.total - oldQuantity) + userCommitment;
+      
+      await bulkOrder.save();
       io.to(roomName).emit('bulk_order_update', bulkOrder);
+    } catch (error) {
+      console.error('Error committing to bulk order:', error);
     }
   });
 
-   socket.on('finalize_bulk_order', async ({ pincode }) => {
+   socket.on('finalize_bulk_order', async ({ pincode, pricePerUnit }) => {
     const roomName = `pincode-${pincode}`;
-    const bulkOrder = bulkOrders[roomName];
+    
     try {
         const community = await Community.findOne({ pincode });
+        const bulkOrder = await BulkOrder.findOne({ pincode });
+
         if (bulkOrder && community?.presidentId === socket.user.id) {
-            console.log("Finalizing bulk order:", bulkOrder); // Log before deletion
-            // TODO: Add logic here to send the finalized bulkOrder.commitments
-            // to the Order service via RabbitMQ or direct API call.
-            io.to(roomName).emit('bulk_order_finalized', { message: `Bulk order for ${bulkOrder.productName} finalized!`, details: bulkOrder });
-            delete bulkOrders[roomName];
+            console.log("Finalizing bulk order from DB...");
+            
+            const orderPayload = {
+              orderItems: [{ productId: bulkOrder.productId, quantity: bulkOrder.total, price: pricePerUnit || 100 }],
+              totalPrice: (pricePerUnit || 100) * bulkOrder.total,
+              supplierId: bulkOrder.supplierId || "unknown-supplier", 
+              vendorLocationLat: 17.3850, // Default lat (e.g. Hyderabad)
+              vendorLocationLon: 78.4867
+            };
+
+            const orderResponse = await global.fetch(`${ORDER_SERVICE_URL}/api/orders`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${socket.token}`
+              },
+              body: JSON.stringify(orderPayload)
+            });
+
+            if(!orderResponse.ok) {
+              const err = await orderResponse.json();
+              return socket.emit('bulk_order_error', { message: `Order submission failed: ${err.message}` });
+            }
+
+            await BulkOrder.findOneAndDelete({ pincode });
+            io.to(roomName).emit('bulk_order_finalized', { message: `Bulk order for ${bulkOrder.productName} finalized successfully!` });
+            
         } else {
-             socket.emit('bulk_order_error', { message: 'Only the president can finalize the order.' });
+             socket.emit('bulk_order_error', { message: 'Only the president can finalize the order or bulk order not found.' });
         }
     } catch(error){
-         console.error(`Error finalizing bulk order in room ${pincode} by user ${socket.id}:`, error);
+         console.error(`Error finalizing bulk order:`, error);
          socket.emit('bulk_order_error', { message: 'Failed to finalize bulk order.' });
     }
   });
 
-  // --- Live Market Logic (Global, Not Pincode Based) ---
-  socket.on('start_market', ({ productId, productName, startingPrice }) => {
-    const marketId = socket.user.id; // Supplier ID used as market ID
+  // --- Live Market Logic (Live Selling Model) ---
+  socket.on('start_market', async ({ productId, productName, price, stockQuantity }) => {
+    const marketId = socket.user.id; 
 
     // Time Check (IST)
     const now = new Date();
-    const istOffsetMinutes = 330;
-    const nowUtc = new Date(now.getTime() + (now.getTimezoneOffset() * 60000));
-    const nowIst = new Date(nowUtc.getTime() + (istOffsetMinutes * 60000));
+    const nowIst = new Date(now.getTime() + (330 * 60000));
     const currentHourIST = nowIst.getHours();
 
     console.log(`Attempt to start market by ${socket.user.id} at hour (IST): ${currentHourIST}`);
 
-    if (currentHourIST < MARKET_START_HOUR_IST || currentHourIST >= MARKET_END_HOUR_IST) {
-       return socket.emit('market_error', { message: `Market can only be started between ${MARKET_START_HOUR_IST}:00 and ${MARKET_END_HOUR_IST}:00 IST.` });
-    }
-    // End Time Check
-
     if (socket.user.role !== 'SUPPLIER') {
       return socket.emit('market_error', { message: 'Only suppliers can start a market.' });
     }
-    if (liveMarkets[marketId]) {
-      return socket.emit('market_error', { message: 'You already have an active market.' });
-    }
-
-    const MARKET_DURATION_MS = 10 * 60 * 1000; // 10 minutes duration
-
-    liveMarkets[marketId] = {
-      marketId, productId, productName, supplierId: socket.user.id,
-      currentPrice: parseFloat(startingPrice) || 0, // Ensure it's a number
-      bids: {}, // { userId: { bidAmount, userEmail } }
-      startTime: Date.now(),
-      duration: MARKET_DURATION_MS,
-      timerId: setTimeout(() => {
-        console.log(`Market ${marketId} timed out.`);
-        io.emit('market_closed', { marketId }); // Announce globally
-        delete liveMarkets[marketId];
-      }, MARKET_DURATION_MS)
-    };
-
-    io.emit('new_market_started', liveMarkets[marketId]); // Announce globally
-    console.log(`Market ${marketId} started by supplier ${socket.user.id} for ${productName}`);
-  });
-
-  socket.on('join_market', (marketId) => {
-    // Check if market exists before joining
-    if(liveMarkets[marketId]) {
-        const marketRoom = `market-${marketId}`;
-        socket.join(marketRoom);
-        console.log(`User ${socket.id} joined market room: ${marketRoom}`);
-        // Send current market state to the user who just joined
-        socket.emit('market_update', liveMarkets[marketId]);
-    } else {
-        socket.emit('market_error', { message: 'Market not found or has already ended.' });
-    }
-  });
-
-  socket.on('make_bid', ({ marketId, bidAmount }) => {
-    const marketRoom = `market-${marketId}`;
-    const market = liveMarkets[marketId];
-    const bidValue = parseFloat(bidAmount);
-
-    if (socket.user.role !== 'VENDOR' || !market || !Number.isFinite(bidValue) || bidValue <= 0) {
-      return socket.emit('market_error', { message: 'Invalid bid.' });
-    }
-    // Optional: Add logic to check if bid is higher than current highest or starting price
-
-    market.bids[socket.user.id] = { bidAmount: bidValue, userEmail: socket.user.email }; // Store user email too
-    io.to(marketRoom).emit('market_update', market); // Broadcast update only within the market room
-  });
-
-  socket.on('accept_bid', ({ marketId, vendorId }) => {
-      const marketRoom = `market-${marketId}`;
-      const market = liveMarkets[marketId];
-
-      if (market && market.supplierId === socket.user.id) { // Check if sender is the supplier
-          const acceptedBid = market.bids[vendorId];
-          if (acceptedBid) {
-              console.log(`Supplier ${socket.user.id} accepted bid from ${vendorId} in market ${marketId}`);
-              // Announce accepted bid within the market room
-              io.to(marketRoom).emit('bid_accepted', {
-                  message: `Supplier accepted bid of ₹${acceptedBid.bidAmount.toFixed(2)} from vendor ${acceptedBid.userEmail || vendorId.substring(0,6)+'...'}`,
-                  vendorId: vendorId,
-                  productId: market.productId,
-                  price: acceptedBid.bidAmount
-              });
-              // Announce market closure globally
-              io.emit('market_closed', { marketId });
-              clearTimeout(market.timerId); // Stop the timer
-              delete liveMarkets[marketId]; // Remove the market
-          } else {
-              socket.emit('market_error', { message: 'Selected vendor has not placed a bid.' });
-          }
-      } else if (market) {
-          socket.emit('market_error', { message: 'Only the supplier who started the market can accept bids.' });
+    
+    try {
+      const existingMarket = await LiveMarket.findOne({ marketId });
+      if (existingMarket) {
+        return socket.emit('market_error', { message: 'You already have an active market.' });
       }
+
+      const MARKET_DURATION_MS = 10 * 60 * 1000; // 10 minutes duration
+
+      const newMarket = await LiveMarket.create({
+        marketId,
+        productId,
+        productName,
+        supplierId: socket.user.id,
+        price: parseFloat(price) || 0,
+        stockQuantity: parseInt(stockQuantity, 10) || 0,
+        startTime: Date.now(),
+        duration: MARKET_DURATION_MS,
+        purchases: []
+      });
+
+      io.emit('new_market_started', newMarket); 
+      console.log(`Market ${marketId} started by supplier ${socket.user.id} for ${productName}`);
+    } catch (error) {
+       console.error(error);
+       socket.emit('market_error', { message: 'Failed to start live market.' });
+    }
+  });
+
+  socket.on('join_market', async (marketId) => {
+    console.log(`Socket ${socket.id} requesting to join market: ${marketId}`);
+    try {
+      const market = await LiveMarket.findOne({ marketId });
+      console.log(`Market findOne result for ${marketId}:`, market ? 'Found' : 'Not Found');
+      if(market) {
+          const marketRoom = `market-${marketId}`;
+          socket.join(marketRoom);
+          console.log(`User ${socket.id} joined market room: ${marketRoom}`);
+          socket.emit('market_update', market);
+      } else {
+          socket.emit('market_error', { message: 'Market not found or has already ended.' });
+      }
+    } catch (error) {
+      console.error(`Error finding market ${marketId}:`, error);
+      socket.emit('market_error', { message: 'Internal server error while joining market.' });
+    }
+  });
+
+  // Vendors purchasing items "buy now"
+  socket.on('buy_product', async ({ marketId, quantity }) => {
+    const marketRoom = `market-${marketId}`;
+    const buyQuantity = parseInt(quantity, 10);
+
+    if (socket.user.role !== 'VENDOR' || !Number.isInteger(buyQuantity) || buyQuantity <= 0) {
+      return socket.emit('market_error', { message: 'Invalid purchase request.' });
+    }
+
+    try {
+      const market = await LiveMarket.findOne({ marketId });
+      if (!market) return socket.emit('market_error', { message: 'Market has ended.' });
+
+      if (market.stockQuantity < buyQuantity) {
+         return socket.emit('market_error', { message: `Only ${market.stockQuantity} left in stock.` });
+      }
+
+      // Hit Order Service directly!
+      const orderPayload = {
+        orderItems: [{ productId: market.productId, quantity: buyQuantity, price: market.price }],
+        totalPrice: market.price * buyQuantity,
+        supplierId: market.supplierId,
+        vendorLocationLat: 17.3850, // Default lat (e.g. Hyderabad) for quick live purchases
+        vendorLocationLon: 78.4867
+      };
+
+      const orderResponse = await global.fetch(`${ORDER_SERVICE_URL}/api/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${socket.token}`
+        },
+        body: JSON.stringify(orderPayload)
+      });
+
+      if (!orderResponse.ok) {
+         const err = await orderResponse.json();
+         return socket.emit('market_error', { message: `Order Service Failed: ${err.message}` });
+      }
+
+      // Successfully ordered! Deduct stock
+      market.stockQuantity -= buyQuantity;
+      market.purchases.push({ userId: socket.user.id, userEmail: socket.user.email, quantity: buyQuantity });
+      await market.save();
+
+      io.to(marketRoom).emit('market_purchase', {
+        message: `${buyQuantity}x purchased by ${socket.user.email || socket.user.id.substring(0, 6)}!`,
+        remainingStock: market.stockQuantity
+      });
+      io.to(marketRoom).emit('market_update', market);
+
+      // Auto-close if sold out
+      if (market.stockQuantity <= 0) {
+        console.log(`Market ${marketId} sold out and closed.`);
+        io.emit('market_closed', { marketId });
+        await LiveMarket.findOneAndDelete({ marketId });
+      }
+
+    } catch (error) {
+      console.error(error);
+      socket.emit('market_error', { message: 'Purchase transaction failed.' });
+    }
+  });
+
+  // --- GPS Tracking Logic ---
+  socket.on('join_tracking_room', (orderId) => {
+    const roomName = `track-${orderId}`;
+    socket.join(roomName);
+    console.log(`User ${socket.id} joined tracking room: ${roomName}`);
+  });
+
+  socket.on('driver_location_update', ({ orderId, latitude, longitude }) => {
+    const roomName = `track-${orderId}`;
+    io.to(roomName).emit('location_update', { orderId, latitude, longitude, timestamp: new Date() });
   });
 
   // --- Disconnect Handler ---
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
-    // Optionally: Notify rooms if a user leaves (e.g., for user counts)
   });
 });
 
@@ -300,4 +416,3 @@ const PORT = process.env.PORT || 3005;
 httpServer.listen(PORT, () => {
   console.log(`Community service (real-time) running on port ${PORT}`);
 });
-

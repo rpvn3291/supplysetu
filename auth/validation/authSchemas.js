@@ -28,6 +28,15 @@ const supplierProfileSchema = z.object({
   minOrderValue: z.number({ required_error: 'Minimum order value is required' }).nonnegative(),
 });
 
+const driverProfileSchema = z.object({
+  firstName: z.string({ required_error: 'First name is required' }),
+  lastName: z.string({ required_error: 'Last name is required' }),
+  phoneNumber: z.string({ required_error: 'Phone number is required' }),
+  vehicleType: z.string({ required_error: 'Vehicle type is required' }),
+  licensePlate: z.string({ required_error: 'License plate is required' }),
+  pincode: z.string({ required_error: 'Pincode is required' }).length(6, 'Pincode must be 6 digits'),
+});
+
 
 // --- Main Registration Schema using a Discriminated Union ---
 const registerSchema = z.object({
@@ -43,6 +52,12 @@ const registerSchema = z.object({
       email: z.string().email('Invalid email address'),
       password: z.string().min(6, 'Password must be at least 6 characters long'),
       profileData: supplierProfileSchema,
+    }),
+    z.object({
+      role: z.literal("DRIVER"),
+      email: z.string().email('Invalid email address'),
+      password: z.string().min(6, 'Password must be at least 6 characters long'),
+      profileData: driverProfileSchema,
     }),
   ]),
 });

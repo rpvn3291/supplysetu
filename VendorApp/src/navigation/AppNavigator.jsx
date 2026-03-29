@@ -11,7 +11,12 @@ import MarketScreen from '../screens/MarketScreen';
 import CartScreen from '../screens/CartScreen';
 import OrdersScreen from '../screens/OrdersScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import OrderDetailScreen from '../screens/OrderDetailScreen'; // NEW IMPORT
+import OrderDetailScreen from '../screens/OrderDetailScreen';
+import LiveMarketScreen from '../screens/LiveMarketScreen'; // NEW
+import LiveSessionScreen from '../screens/LiveSessionScreen'; // NEW
+import CommunityHubScreen from '../screens/CommunityHubScreen'; // NEW
+import CommunityChatScreen from '../screens/CommunityChatScreen'; // NEW
+import WriteReviewScreen from '../screens/WriteReviewScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -33,6 +38,8 @@ function MainTabs() {
       }}
     >
       <Tab.Screen name="Market" component={MarketScreen} options={{ title: 'B2B Market' }} />
+      <Tab.Screen name="LiveDeals" component={LiveMarketScreen} options={{ title: 'Live Deals', tabBarActiveTintColor: '#ef4444' }} />
+      <Tab.Screen name="Community" component={CommunityHubScreen} options={{ title: 'Community', tabBarActiveTintColor: '#8b5cf6' }} />
       <Tab.Screen 
         name="Cart" 
         component={CartScreen} 
@@ -67,7 +74,6 @@ export default function AppNavigator() {
         {token == null ? (
           <Stack.Screen name="Auth" component={LoginScreen} />
         ) : (
-          // Use a stack to allow navigating from Tabs to a Detail screen
           <Stack.Group>
             <Stack.Screen name="AppTabs" component={MainTabs} />
             <Stack.Screen 
@@ -77,6 +83,36 @@ export default function AppNavigator() {
                 headerShown: true, 
                 title: 'Order Status',
                 headerBackTitle: 'Back'
+              }} 
+            />
+            <Stack.Screen 
+              name="LiveSession" 
+              component={LiveSessionScreen} 
+              options={{ 
+                headerShown: true, 
+                title: 'Live Selling',
+                headerBackTitle: 'Back',
+                headerTintColor: '#dc2626'
+              }} 
+            />
+            <Stack.Screen 
+              name="CommunityChat" 
+              component={CommunityChatScreen} 
+              options={{ 
+                headerShown: true, 
+                title: 'Local Community',
+                headerBackTitle: 'Leave',
+                headerTintColor: '#8b5cf6'
+              }} 
+            />
+            <Stack.Screen 
+              name="WriteReview" 
+              component={WriteReviewScreen} 
+              options={{ 
+                headerShown: true, 
+                title: 'Review Product',
+                headerBackTitle: 'Cancel',
+                headerTintColor: '#eab308'
               }} 
             />
           </Stack.Group>

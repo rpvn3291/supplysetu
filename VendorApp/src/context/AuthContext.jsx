@@ -1,6 +1,9 @@
 import React, { createContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { usePushNotifications } from '../hooks/usePushNotifications';
+import axios from 'axios';
 
+const API_URL = 'http://192.168.29.42:3001/api/auth';
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
@@ -19,6 +22,16 @@ export const AuthProvider = ({ children }) => {
     };
     loadToken();
   }, []);
+
+  const { expoPushToken } = usePushNotifications();
+
+  useEffect(() => {
+    if (userToken && expoPushToken) {
+      axios.put(`${API_URL}/push-token`, { token: expoPushToken }, {
+        headers: { Authorization: `Bearer ${userToken}` }
+      }).catch(e => console.log('Failed to sync push token', e.message));
+    }
+  }, [userToken, expoPushToken]);
 
   const signIn = async (token) => {
     await SecureStore.setItemAsync('userToken', token);

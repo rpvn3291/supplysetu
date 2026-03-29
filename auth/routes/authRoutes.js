@@ -1,6 +1,6 @@
 // filename: routes/authRoutes.js
 const express = require('express');
-const { register, login, getMe, updateProfile, toggleKycStatus } = require('../controllers/authController');
+const { register, login, getMe, updateProfile, toggleKycStatus, updatePushToken, getInternalUserToken } = require('../controllers/authController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { validateRequest } = require('../middleware/validateRequest');
 const { registerSchema, loginSchema } = require('../validation/authSchemas');
@@ -14,9 +14,13 @@ router.post('/login', validateRequest(loginSchema), login);
 // Protected User Routes
 router.get('/me', authMiddleware, getMe);
 router.put('/update-profile', authMiddleware, updateProfile);
+router.put('/push-token', authMiddleware, updatePushToken);
 
 // Simple Admin Route
 router.patch('/toggle-kyc/:userId', toggleKycStatus);
+
+// Internal Microservice Exchange Route
+router.get('/internal/token/:userId', getInternalUserToken);
 
 module.exports = router;
 
