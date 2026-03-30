@@ -4,7 +4,7 @@ import { AuthContext } from '../context/AuthContext';
 import { api } from '../services/api';
 
 export default function LoginScreen() {
-  const { signIn } = useContext(AuthContext);
+  const { signIn, continueAsGuest } = useContext(AuthContext);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,6 +50,10 @@ export default function LoginScreen() {
       <TouchableOpacity style={styles.btn} onPress={handleLogin} disabled={loading}>
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Log In</Text>}
       </TouchableOpacity>
+      
+      <TouchableOpacity style={styles.guestBtn} onPress={continueAsGuest} disabled={loading}>
+        <Text style={styles.guestBtnText}>Continue as Guest</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -60,5 +64,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 16, color: '#666', marginBottom: 40 },
   input: { width: '100%', height: 50, borderBottomWidth: 1.5, borderColor: '#ddd', marginBottom: 20, paddingHorizontal: 10, fontSize: 16 },
   btn: { backgroundColor: '#16a34a', width: '100%', height: 50, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginTop: 20 },
-  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 18 }
+  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 18 },
+  guestBtn: { backgroundColor: 'transparent', width: '100%', height: 50, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginTop: 15, borderWidth: 1, borderColor: '#16a34a' },
+  guestBtnText: { color: '#16a34a', fontWeight: '600', fontSize: 16 }
 });

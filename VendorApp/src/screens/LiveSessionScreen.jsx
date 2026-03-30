@@ -18,7 +18,7 @@ export default function LiveSessionScreen() {
   useEffect(() => {
     if (!token) return;
 
-    const COMMUNITY_URL = 'http://192.168.29.42:3005'; 
+    const COMMUNITY_URL = 'https://community-4v39.onrender.com'; 
     const newSocket = io(COMMUNITY_URL, {
       auth: { token }
     });

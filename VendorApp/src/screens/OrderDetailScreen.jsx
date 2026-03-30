@@ -17,7 +17,7 @@ const haversineDistance = (coords1, coords2) => {
   return R * c;
 };
 
-const SOCKET_URL = 'http://192.168.29.42:3005'; // Community Service port
+const SOCKET_URL = 'https://community-4v39.onrender.com'; // Community Service port
 
 /**
  * ORDER DETAIL SCREEN
@@ -49,19 +49,24 @@ export default function OrderDetailScreen({ route, navigation }) {
   // Connect to tracking socket if SHIPPED
   useEffect(() => {
     if (order && order.status === 'SHIPPED') {
-      const socket = io(SOCKET_URL, {
-        auth: { token: 'guest' } // Just a dummy token because we skipped socket auth for simple tracking, wait, the server requires real auth
-      });
+      let mySock;
 
-      // We need to pass the real token. Without async in useEffect, let's just use `api.get` token approach or store it.
-      // For now, let's gracefully fail or connect if token exists. Actually the server expects a valid JWT.
-      // We can get the token from SecureStore. Let's do it inside the effect.
       const connectSocket = async () => {
         const SecureStore = require('expo-secure-store');
         const token = await SecureStore.getItemAsync('userToken');
-        if (!token) return;
+        if (!token) return null;
 
-        const _socket = io(SOCKET_URL, { auth: { token } });
+        const _socket = io(SOCKET_URL, { 
+          auth: { token }, 
+          forceNew: true,
+          transports: ['websocket']
+        });
+
+        _socket.on('connect_error', (err) => {
+          console.log('Vendor socket connect_error:', err.message);
+          import('react-native').then(rn => rn.Alert.alert('Vendor Socket Error', err.message));
+        });
+
         _socket.on('connect', () => {
           _socket.emit('join_tracking_room', order.id);
         });
@@ -73,7 +78,6 @@ export default function OrderDetailScreen({ route, navigation }) {
         return _socket;
       };
       
-      let mySock;
       connectSocket().then(s => { mySock = s; });
 
       return () => {

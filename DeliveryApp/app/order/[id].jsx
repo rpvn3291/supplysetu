@@ -27,8 +27,17 @@ const startGlobalTracking = async (orderId, onActive) => {
   }
 
   const token = await SecureStore.getItemAsync('driverToken');
-  globalSocket = io(SOCKET_URL, { auth: { token } });
+  globalSocket = io(SOCKET_URL, { 
+    auth: { token }, 
+    forceNew: true,
+    transports: ['websocket'] 
+  });
   
+  globalSocket.on('connect_error', (err) => {
+    console.log('Delivery socket connect_error:', err.message);
+    Alert.alert('Tracker Error', err.message);
+  });
+
   globalSocket.on('connect', async () => {
     console.log('Global tracker connected for order', orderId);
     currentlyTrackingOrderId = orderId;

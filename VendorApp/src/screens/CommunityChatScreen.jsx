@@ -40,7 +40,7 @@ export default function CommunityChatScreen() {
         if (decoded && decoded.id) setMyUserId(decoded.id);
     } catch(e) {}
 
-    const COMMUNITY_URL = 'http://192.168.29.42:3005'; 
+    const COMMUNITY_URL = 'https://community-4v39.onrender.com'; 
     const newSocket = io(COMMUNITY_URL, {
       auth: { token }
     });

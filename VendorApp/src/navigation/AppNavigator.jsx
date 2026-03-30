@@ -58,7 +58,7 @@ function MainTabs() {
  * MAIN APP NAVIGATOR
  */
 export default function AppNavigator() {
-  const { token, isLoading } = useContext(AuthContext);
+  const { token, isLoading, isGuest } = useContext(AuthContext);
 
   if (isLoading) {
     return (
@@ -71,7 +71,7 @@ export default function AppNavigator() {
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {token == null ? (
+        {token == null && !isGuest ? (
           <Stack.Screen name="Auth" component={LoginScreen} />
         ) : (
           <Stack.Group>

@@ -3,11 +3,12 @@ import * as SecureStore from 'expo-secure-store';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import axios from 'axios';
 
-const API_URL = 'http://192.168.29.42:3001/api/auth';
+const API_URL = 'https://supplysetu-lzxv.onrender.com/api/auth';
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [userToken, setUserToken] = useState(null);
+  const [isGuest, setIsGuest] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -36,15 +37,21 @@ export const AuthProvider = ({ children }) => {
   const signIn = async (token) => {
     await SecureStore.setItemAsync('userToken', token);
     setUserToken(token);
+    setIsGuest(false);
+  };
+
+  const continueAsGuest = () => {
+    setIsGuest(true);
   };
 
   const signOut = async () => {
     await SecureStore.deleteItemAsync('userToken');
     setUserToken(null);
+    setIsGuest(false);
   };
 
   return (
-    <AuthContext.Provider value={{ token: userToken, isLoading, signIn, signOut }}>
+    <AuthContext.Provider value={{ token: userToken, isGuest, isLoading, signIn, signOut, continueAsGuest }}>
       {children}
     </AuthContext.Provider>
   );

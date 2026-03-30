@@ -1,12 +1,12 @@
 import React, { useState, useContext } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
-import { AuthContext } from '../context/AuthContext';
+import { AuthContext } from '../../context/AuthContext';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 
 // Make sure to set your actual Auth Microservice IP
-const API_URL = 'http://192.168.29.42:3001/api/auth'; 
+const API_URL = 'https://supplysetu-lzxv.onrender.com/api/auth'; 
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');

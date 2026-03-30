@@ -134,11 +134,16 @@ export default function HomePage() {
         {/* --- Logged Out View --- */}
         {!userRole && (
           <div className="text-center bg-white p-8 rounded-xl shadow-lg">
-             <h2 className="text-2xl font-bold text-gray-800 mb-4">Welcome!</h2>
-             <p className="text-gray-600 mb-6">Please log in or register to access the platform.</p>
-             <Link href={ROUTES.LOGIN} className="inline-block bg-green-600 text-white py-3 px-8 rounded-xl font-bold hover:bg-green-700 transition duration-200 shadow-md">
-               Login or Register Here
-             </Link>
+             <h2 className="text-2xl font-bold text-gray-800 mb-4">Welcome to Supply Setu!</h2>
+             <p className="text-gray-600 mb-6">Please log in to manage your account or browse our catalog as a guest.</p>
+             <div className="flex flex-col sm:flex-row justify-center gap-4">
+               <Link href={ROUTES.LOGIN} className="inline-block bg-green-600 text-white py-3 px-8 rounded-xl font-bold hover:bg-green-700 transition duration-200 shadow-md">
+                 Login or Register
+               </Link>
+               <Link href={ROUTES.PRODUCTS} className="inline-block bg-amber-500 text-white py-3 px-8 rounded-xl font-bold hover:bg-amber-600 transition duration-200 shadow-md">
+                 Browse Products as Guest
+               </Link>
+             </div>
           </div>
         )}
 
