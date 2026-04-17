@@ -5,7 +5,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications';
 import axios from 'axios';
 
 // Production Gateway URL
-const API_URL = 'https://supplysetu-lzxv.onrender.com/api/auth';
+const API_URL = process.env.EXPO_PUBLIC_AUTH_API_URL;
 
 export const AuthContext = createContext();
 

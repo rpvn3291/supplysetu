@@ -2,14 +2,18 @@ import mongoose from 'mongoose';
 
 const liveMarketSchema = new mongoose.Schema({
   marketId: { type: String, required: true, unique: true },
-  productId: { type: String, required: true },
-  productName: { type: String, required: true },
+  title: { type: String, required: true },
   supplierId: { type: String, required: true },
-  price: { type: Number, required: true },
-  stockQuantity: { type: Number, required: true },
+  products: [{
+      productId: { type: String, required: true },
+      productName: { type: String, required: true },
+      price: { type: Number, required: true },
+      stockQuantity: { type: Number, required: true },
+  }],
   startTime: { type: Date, default: Date.now },
   duration: { type: Number, required: true },
   purchases: [{
+    productId: String,
     userId: String,
     userEmail: String,
     quantity: Number,

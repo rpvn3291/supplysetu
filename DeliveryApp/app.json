@@ -8,10 +8,8 @@
     "scheme": "deliveryapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true
-    },
     "android": {
+      "package": "com.supplysetu.deliveryapp",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -39,8 +37,21 @@
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Supply Setu to access your location even when the app is in the background.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
     ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["location", "fetch"]
+      }
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

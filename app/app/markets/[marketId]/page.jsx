@@ -37,7 +37,7 @@ const useCountdown = (endTime) => {
 export default function MarketDetailPage() {
   const [market, setMarket] = useState(null);
   const [socket, setSocket] = useState(null);
-  const [buyQty, setBuyQty] = useState('1');
+  const [buyQtys, setBuyQtys] = useState({});
   const [message, setMessage] = useState('');
   const [myUserId, setMyUserId] = useState(null);
   const [error, setError] = useState(null);
@@ -70,16 +70,29 @@ export default function MarketDetailPage() {
     } catch(e) {}
 
     const newSocket = io(process.env.NEXT_PUBLIC_COMMUNITY_API_URL || 'http://localhost:3005', {
-      auth: { token }
+      auth: { token },
+      forceNew: true
     });
     setSocket(newSocket);
     setIsLoading(true);
 
-    newSocket.emit('join_market', marketId);
+    const attemptJoin = () => {
+        setMessage("Attempting to join...");
+        newSocket.emit('join_market', marketId);
+    };
+
+    if (newSocket.connected) attemptJoin();
+    newSocket.on('connect', attemptJoin);
+
+    // Fallback if dropped
+    const fallbackTimeout = setTimeout(() => {
+        if (newSocket.connected) attemptJoin();
+    }, 2000);
 
     newSocket.on('market_update', (marketData) => {
       setMarket(marketData);
       setIsLoading(false);
+      setMessage("");
     });
 
     newSocket.on('market_closed', () => {
@@ -103,28 +116,41 @@ export default function MarketDetailPage() {
         setIsLoading(false);
     });
 
-    return () => newSocket.disconnect();
+    return () => {
+        clearTimeout(fallbackTimeout);
+        newSocket.disconnect();
+    };
   }, [marketId]);
 
-  const handleBuy = (e) => {
+  const handleBuy = (e, productId, maxStock) => {
     e.preventDefault();
-    const qty = parseInt(buyQty, 10);
+    const qty = parseInt(buyQtys[productId] || '1', 10);
     if (socket && market && !market.closed && qty > 0) {
-      if (qty > market.stockQuantity) {
-          setMessage(`Cannot buy more than ${market.stockQuantity} items.`);
+      if (qty > maxStock) {
+          setMessage(`Cannot buy more than ${maxStock} items.`);
           return;
       }
-      socket.emit('buy_product', { marketId, quantity: qty });
-      setBuyQty('1');
+      socket.emit('buy_product', { marketId, productId, quantity: qty });
+      setBuyQtys(prev => ({ ...prev, [productId]: '1' }));
     }
   };
 
-  if (isLoading) return <div className="min-h-screen bg-gray-100 flex items-center justify-center">Loading...</div>;
+  const isSupplier = myUserId === market?.supplierId;
+  const isMarketClosed = market?.closed || timeLeftString === "Market Closed" || (market?.products?.every(p => p.stockQuantity <= 0) || false);
+
+  if (isLoading) {
+      return (
+          <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-8">
+              <h1 className="text-2xl font-bold mb-4">Socket Diagnostic Mode...</h1>
+              <p>Socket Connected: {socket?.connected ? "YES" : "NO"}</p>
+              <p>Current Message: {message}</p>
+              {error && <p className="text-red-500 mt-4">Error Caught: {error}</p>}
+          </div>
+      );
+  }
+  
   if (error) return <div className="min-h-screen p-8 text-red-600">{error}</div>;
   if (!market) return <div className="min-h-screen p-8 text-gray-500">Market not found or has ended.</div>;
-
-  const isSupplier = myUserId === market?.supplierId;
-  const isMarketClosed = market?.closed || timeLeftString === "Market Closed" || market.stockQuantity <= 0;
 
   return (
     <div className="min-h-screen bg-gray-100 font-inter p-4 sm:p-8">
@@ -137,29 +163,35 @@ export default function MarketDetailPage() {
             </div>
 
             <div className="text-center mb-6">
-                 <span className="text-xs font-semibold uppercase tracking-wider text-red-600 bg-red-100 px-3 py-1 rounded-full animate-pulse shadow-sm border border-red-200">● LIVE SELLING</span>
-                 <h1 className="text-3xl font-bold text-gray-800 mt-4">{market.productName}</h1>
+                 <span className="text-xs font-semibold uppercase tracking-wider text-red-600 bg-red-100 px-3 py-1 rounded-full animate-pulse shadow-sm border border-red-200">● LIVE FLASH DEAL</span>
+                 <h1 className="text-3xl font-bold text-gray-800 mt-4">{market.title}</h1>
                  <p className="text-sm text-gray-500 mt-1">Market ID: {market.marketId.substring(0,8)}...</p>
                  <div className="mt-4 flex justify-center gap-6">
-                    <p className="text-xl text-green-700 font-bold bg-green-50 px-4 py-2 rounded-lg border border-green-200">Price: ₹{market.price.toFixed(2)}</p>
-                    <p className="text-xl text-blue-700 font-bold bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">Stock: {market.stockQuantity}</p>
+                    <p className="text-sm text-green-700 font-bold bg-green-50 px-3 py-1 rounded-full border border-green-200">{market.products?.length || 0} Special Items Included</p>
                  </div>
                  {message && <p className={`mt-4 font-semibold text-sm ${message.includes('Error') ? 'text-red-600' : 'text-blue-600'}`}>{message}</p>}
             </div>
 
-            {!isSupplier && !isMarketClosed && (
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
-                    <h3 className="text-lg font-semibold text-gray-700 mb-3">Buy Now</h3>
-                    <form onSubmit={handleBuy} className="flex gap-3 items-center">
-                         <div className="relative flex-grow">
-                             <input type="number" step="1" min="1" max={market.stockQuantity} value={buyQty} onChange={(e) => setBuyQty(e.target.value)} required className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500" />
-                        </div>
-                        <button type="submit" className="px-5 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition shadow whitespace-nowrap">
-                            Buy @ ₹{market.price.toFixed(2)}
-                        </button>
-                    </form>
+            {!isSupplier && !isMarketClosed && market.products?.map((p, idx) => (
+                <div key={p.productId || idx} className="mb-4 p-4 bg-gray-50 rounded-lg border flex flex-col sm:flex-row justify-between items-center">
+                    <div className="mb-3 sm:mb-0">
+                        <h3 className="text-lg font-semibold text-gray-800">{p.productName}</h3>
+                        <p className="text-sm text-gray-500">Stock: {p.stockQuantity} remaining</p>
+                    </div>
+                    {p.stockQuantity > 0 ? (
+                        <form onSubmit={(e) => handleBuy(e, p.productId, p.stockQuantity)} className="flex gap-3 items-center">
+                             <div className="relative w-20">
+                                 <input type="number" step="1" min="1" max={p.stockQuantity} value={buyQtys[p.productId] || '1'} onChange={(e) => setBuyQtys(prev => ({...prev, [p.productId]: e.target.value}))} required className="w-full px-2 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500" />
+                            </div>
+                            <button type="submit" className="px-5 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition shadow whitespace-nowrap">
+                                Buy @ ₹{p.price.toFixed(2)}
+                            </button>
+                        </form>
+                    ) : (
+                        <span className="text-red-500 font-bold bg-red-100 px-3 py-1 rounded-full">SOLD OUT</span>
+                    )}
                 </div>
-            )}
+            ))}
             
             {isMarketClosed && <p className="text-center text-red-600 font-semibold mb-6">This market session is over.</p>}
 

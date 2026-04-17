@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 
 export async function PUT(request, { params }) {
   try {
-    const resolvedParams = await Promise.resolve(params);
-    const { id } = resolvedParams;
+    const { id } = await params;
     const authorization = request.headers.get('authorization');
     
     // Pass the OTP body

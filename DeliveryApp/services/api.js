@@ -1,17 +1,9 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
-// Production Gateway URL
-export const ORDER_SERVICE_URL = "https://supplysetu-lzxv.onrender.com/api";
-
-/*
-// Local Development logic (commented out for now as requested)
-const debuggerHost = Constants.expoConfig?.hostUri;
-const localhost = debuggerHost?.split(':')[0];
-const DEV_ORDER_SERVICE_URL = __DEV__ && localhost ? `http://${localhost}:3000/api` : ORDER_SERVICE_URL;
-*/
-
-export const SOCKET_URL = "https://community-4v39.onrender.com"; // Keeping local IP for socket as it's not deployed yet
+// API Base URLs
+export const ORDER_SERVICE_URL = process.env.EXPO_PUBLIC_ORDER_API_URL;
+export const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_API_URL;
 
 const getHeaders = async () => {
   const token = await SecureStore.getItemAsync('driverToken');

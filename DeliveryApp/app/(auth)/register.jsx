@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 
-const API_URL = 'https://supplysetu-lzxv.onrender.com/api/auth';
+const API_URL = process.env.EXPO_PUBLIC_AUTH_API_URL;
 
 export default function RegisterScreen() {
   const [form, setForm] = useState({

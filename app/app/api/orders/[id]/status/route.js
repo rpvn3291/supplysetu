@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server';
  */
 export async function PUT(request, { params }) {
   try {
-    const { id } = params;
+    const { id } = await params;
     
     // 1. Get the Authorization header
     const authorization = request.headers.get('authorization');

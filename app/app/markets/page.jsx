@@ -21,6 +21,8 @@ export default function MarketsPage() {
   
   // New Market Form State
   const [showStartForm, setShowStartForm] = useState(false);
+  const [flashTitle, setFlashTitle] = useState('');
+  const [stagedProducts, setStagedProducts] = useState([]);
   const [newMarket, setNewMarket] = useState({ productId: '', productName: '', price: '', stockQuantity: '' });
   const [myRole, setMyRole] = useState(null);
 
@@ -80,6 +82,11 @@ export default function MarketsPage() {
         setLoading(false);
     });
 
+    newSocket.on('market_error', (data) => {
+        setError(data.message);
+        setLoading(false);
+    });
+
     return () => newSocket.disconnect();
   }, []);
 
@@ -96,13 +103,24 @@ export default function MarketsPage() {
       }
   };
 
+  const handleAddProduct = () => {
+      if (newMarket.productId && newMarket.productName && newMarket.price && newMarket.stockQuantity) {
+          setStagedProducts(prev => [...prev, { ...newMarket, price: parseFloat(newMarket.price), stockQuantity: parseInt(newMarket.stockQuantity, 10) }]);
+          setNewMarket({ productId: '', productName: '', price: '', stockQuantity: '' });
+      }
+  };
+
   const handleStartMarket = (e) => {
     e.preventDefault();
-    if(socket && newMarket.productId && newMarket.productName && newMarket.price && newMarket.stockQuantity) {
-        socket.emit('start_market', newMarket);
+    if(socket && stagedProducts.length > 0) {
+        socket.emit('start_market', { title: flashTitle || "Exclusive Flash Deals", products: stagedProducts });
         setShowStartForm(false);
+        setStagedProducts([]);
+        setFlashTitle('');
         setNewMarket({ productId: '', productName: '', price: '', stockQuantity: '' });
-        alert("Live Market Start Request Sent! You will be redirected if successful.");
+        alert("Live Flash Deal Started! You will be redirected if successful.");
+    } else {
+        alert("Please add at least one product to the deal package.");
     }
   };
 
@@ -131,11 +149,29 @@ export default function MarketsPage() {
                     
                     {showStartForm && (
                         <div className="bg-white p-6 rounded-lg shadow mt-4 border border-blue-100">
-                            <h2 className="text-lg font-bold mb-4">Start a Live Selling Session</h2>
+                            <h2 className="text-lg font-bold mb-4">Start a Multi-Item Flash Sale</h2>
                             <form onSubmit={handleStartMarket} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="md:col-span-2 mb-2">
+                                    <label className="block text-sm text-gray-600 mb-1">Flash Deal Title</label>
+                                    <input type="text" placeholder="e.g. Mega Morning Produce Sale" value={flashTitle} onChange={e => setFlashTitle(e.target.value)} className="border w-full p-2 rounded" />
+                                </div>
+                                
+                                {/* PENDING PRODUCTS LIST */}
+                                {stagedProducts.length > 0 && (
+                                    <div className="md:col-span-2 mb-4 p-4 bg-gray-50 border rounded-lg">
+                                        <h3 className="font-bold mb-2">Deal Package Items:</h3>
+                                        {stagedProducts.map((p, idx) => (
+                                            <div key={idx} className="flex justify-between items-center text-sm border-b py-2">
+                                                <span className="font-semibold">{p.productName}</span>
+                                                <span className="text-green-700 font-bold">{p.stockQuantity}x @ ₹{p.price}</span>
+                                                <button type="button" onClick={() => setStagedProducts(prev => prev.filter((_, i) => i !== idx))} className="text-red-500 font-bold px-2">Drop</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
                                 {/* PRODUCT DROPDOWN */}
                                 <select 
-                                    required 
                                     value={newMarket.productId} 
                                     onChange={handleProductSelection} 
                                     className="border p-2 rounded col-span-1 md:col-span-2 bg-white text-gray-800"
@@ -152,13 +188,16 @@ export default function MarketsPage() {
                                 {/* PRICE AND STOCK OVERRIDES */}
                                 <div>
                                     <label className="block text-sm text-gray-600 mb-1">Live Deal Price (₹)</label>
-                                    <input required type="number" step="0.01" value={newMarket.price} onChange={e => setNewMarket({...newMarket, price: e.target.value})} className="border w-full p-2 rounded" />
+                                    <input type="number" step="0.01" value={newMarket.price} onChange={e => setNewMarket({...newMarket, price: e.target.value})} className="border w-full p-2 rounded" />
                                 </div>
                                 <div>
-                                    <label className="block text-sm text-gray-600 mb-1">Stock Dedicated to Live Deal</label>
-                                    <input required type="number" step="1" value={newMarket.stockQuantity} onChange={e => setNewMarket({...newMarket, stockQuantity: e.target.value})} className="border w-full p-2 rounded" />
+                                    <label className="block text-sm text-gray-600 mb-1">Stock Dedicated</label>
+                                    <input type="number" step="1" value={newMarket.stockQuantity} onChange={e => setNewMarket({...newMarket, stockQuantity: e.target.value})} className="border w-full p-2 rounded" />
                                 </div>
-                                <button type="submit" className="md:col-span-2 bg-green-600 text-white font-bold py-2 rounded shadow hover:bg-green-700 mt-2">Start Session</button>
+
+                                <button type="button" onClick={handleAddProduct} className="md:col-span-2 bg-blue-50 text-blue-700 font-bold py-2 border border-blue-300 rounded shadow-sm hover:bg-blue-100 mt-2">+ Add Item</button>
+                                
+                                <button type="submit" className="md:col-span-2 bg-green-600 text-white font-bold py-3 rounded shadow hover:bg-green-700 mt-4 text-lg">🚀 Launch Flash Deal Now!</button>
                             </form>
                         </div>
                     )}
@@ -174,23 +213,26 @@ export default function MarketsPage() {
                         <p className="text-center text-gray-500 mt-10 bg-white p-6 rounded-lg shadow">There are no active markets right now. Start one above to get sales!</p>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {activeMarkets.map((market) => (
+                            {activeMarkets.map((market) => {
+                                const totalStock = market.products?.reduce((acc, p) => acc + p.stockQuantity, 0) || 0;
+                                const itemCount = market.products?.length || 0;
+                                return (
                                 <div key={market.marketId} className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex flex-col hover:shadow-lg transition duration-200">
                                    <div className="p-5 flex flex-col flex-grow">
                                         <div className="flex justify-between items-start mb-1">
-                                            <span className="text-xs font-semibold uppercase tracking-wider text-red-600 bg-red-100 px-2 py-1 rounded-full animate-pulse">● LIVE</span>
-                                            <span className="text-xs font-bold text-gray-500">{market.stockQuantity} in stock</span>
+                                            <span className="text-xs font-semibold uppercase tracking-wider text-red-600 bg-red-100 px-2 py-1 rounded-full animate-pulse">● FLASH DEAL</span>
+                                            <span className="text-xs font-bold text-gray-500">{totalStock} total stock</span>
                                         </div>
-                                        <h2 className="text-xl font-bold text-gray-800 mb-2 truncate">{market.productName}</h2>
+                                        <h2 className="text-xl font-bold text-gray-800 mb-2 truncate">{market.title}</h2>
                                         <p className="text-sm text-gray-500 mb-1">Supplier: {market.supplierId.substring(0, 8)}...</p>
-                                        <p className="text-lg font-semibold text-green-700 mb-4">Price: ₹{market.price?.toFixed(2) || '0.00'}</p>
+                                        <p className="text-lg font-semibold text-blue-700 mb-4">{itemCount} items on sale</p>
                                         
                                         <Link href={`/markets/${market.marketId}`} className="w-full mt-auto py-2 px-4 rounded-md font-semibold text-white bg-teal-500 hover:bg-teal-600 transition shadow text-center block">
-                                            Join Live Session
+                                            Enter Deal Room
                                         </Link>
                                     </div>
                                 </div>
-                            ))}
+                            )})}
                         </div>
                     )}
                  </div>

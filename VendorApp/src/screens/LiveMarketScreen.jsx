@@ -14,14 +14,17 @@ export default function LiveMarketScreen() {
     if (!token) return;
 
     // Connect to Community Service
-    const COMMUNITY_URL = 'https://community-4v39.onrender.com'; 
-    const newSocket = io(COMMUNITY_URL, {
+    const COMMUNITY_URL = process.env.EXPO_PUBLIC_COMMUNITY_API_URL;    const newSocket = io(COMMUNITY_URL, {
       auth: { token }
     });
     setSocket(newSocket);
 
     newSocket.on('active_markets_list', (markets) => {
-      setActiveMarkets(Object.values(markets).filter(m => !m.closed && m.stockQuantity > 0));
+      setActiveMarkets(Object.values(markets).filter(m => {
+          if (m.closed) return false;
+          const totalStock = m.products?.reduce((acc, p) => acc + p.stockQuantity, 0) || 0;
+          return totalStock > 0;
+      }));
     });
 
     newSocket.on('new_market_started', (marketData) => {
@@ -51,11 +54,11 @@ export default function LiveMarketScreen() {
           <View style={styles.card}>
             <View style={{ flex: 1 }}>
               <View style={styles.liveBadge}>
-                 <Text style={styles.badgeText}>● LIVE</Text>
+                 <Text style={styles.badgeText}>● FLASH DEAL</Text>
               </View>
-              <Text style={styles.name}>{item.productName}</Text>
-              <Text style={styles.price}>₹{item.price.toFixed(2)}</Text>
-              <Text style={styles.stock}>Stock Left: {item.stockQuantity}</Text>
+              <Text style={styles.name}>{item.title || "Exclusive Flash Deal"}</Text>
+              <Text style={styles.price}>{item.products?.length || 0} Special Items Included</Text>
+              <Text style={styles.stock}>Available Now</Text>
             </View>
             <TouchableOpacity 
                 style={styles.joinBtn} 

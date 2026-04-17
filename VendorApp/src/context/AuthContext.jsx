@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import axios from 'axios';
 
-const API_URL = 'https://supplysetu-lzxv.onrender.com/api/auth';
+const API_URL = process.env.EXPO_PUBLIC_AUTH_API_URL;
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {

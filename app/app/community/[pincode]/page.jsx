@@ -12,7 +12,45 @@ const formatTime = (dateString) => {
     return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+import React from 'react';
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 bg-red-50 text-red-900 h-screen font-mono">
+          <h1 className="text-2xl font-bold mb-4">React Crashed!</h1>
+          <p className="whitespace-pre-wrap">{this.state.error?.toString()}</p>
+          <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-red-600 text-white rounded">Hard Reload</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function ChatPage() {
+  return (
+    <ErrorBoundary>
+      <ChatPageInternal />
+    </ErrorBoundary>
+  )
+}
+
+function ChatPageInternal() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [communityInfo, setCommunityInfo] = useState({ presidentId: null });
@@ -72,13 +110,13 @@ export default function ChatPage() {
     
     newSocket.on('community_info', (data) => setCommunityInfo(data));
     newSocket.on('chat_history', (history) => {
-        setDebugLog(prev => prev + ' -> History Received (' + history.length + ')');
-        setMessages(history);
+        setDebugLog(prev => prev + ' -> History Received (' + (history?.length || 0) + ')');
+        setMessages(Array.isArray(history) ? history : []);
     });
     newSocket.on('error_message', (err) => {
         setDebugLog(prev => prev + ' -> SERVER ERROR: ' + err.message);
     });
-    newSocket.on('receive_message', (message) => setMessages((prev) => [...prev, message]));
+    newSocket.on('receive_message', (message) => setMessages((prev) => Array.isArray(prev) ? [...prev, message] : [message]));
     newSocket.on('new_poll', (pollData) => setPoll(pollData));
     newSocket.on('poll_update', (pollData) => setPoll(pollData));
     newSocket.on('poll_error', (error) => alert(`Poll Error: ${error.message}`));
@@ -123,7 +161,7 @@ export default function ChatPage() {
       setBulkOrderSupplierId('');
       if (!text) { setSearchResults([]); return; }
       try {
-          const res = await fetch(`http://localhost:3002/api/products?search=${text}`);
+          const res = await fetch(`/api/products?search=${text}`);
           const data = await res.json();
           setSearchResults(data.products || []);
       } catch(e) { console.error(e); }
@@ -151,7 +189,7 @@ export default function ChatPage() {
       }
   };
 
-  const isPresident = myUserId === communityInfo.presidentId;
+  const isPresident = Boolean(myUserId) && communityInfo && myUserId === communityInfo.presidentId;
 
   return (
       <div className="flex flex-col h-screen bg-gray-100 font-inter">
@@ -174,10 +212,10 @@ export default function ChatPage() {
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 shadow mb-4">
                     <h3 className="font-bold text-blue-800 mb-2">📊 Community Poll: {poll.question}</h3>
                     <div className="space-y-2">
-                    {Object.keys(poll.options).map(key => (
+                    {Object.keys(poll.options || {}).map(key => (
                         <button key={key} onClick={() => handleVote(key)} className="w-full text-left bg-white px-4 py-2 rounded shadow-sm hover:bg-gray-50 flex justify-between">
                             <span className="font-semibold text-gray-700">{key}</span>
-                            <span className="text-blue-600 font-bold">{poll.options[key]} votes</span>
+                            <span className="text-blue-600 font-bold">{poll.options && poll.options[key] ? poll.options[key] : 0} votes</span>
                         </button>
                     ))}
                     </div>
@@ -226,7 +264,7 @@ export default function ChatPage() {
             )}
 
             {/* Chat History */}
-            {messages.map((msg, index) => {
+            {Array.isArray(messages) && messages.map((msg, index) => {
               const isMyMessage = msg.userId === myUserId;
               return (
                 <div key={msg._id || index} className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
@@ -244,8 +282,8 @@ export default function ChatPage() {
         <footer className="bg-white p-4 border-t sticky bottom-0 z-10 w-full">
           <div className="container mx-auto">
             <form onSubmit={handleSendMessage} className="flex gap-2">
-              <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type your message..." className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500" />
-              <button type="submit" className="px-5 py-2 bg-purple-600 text-white font-semibold rounded-full hover:bg-purple-700 transition shadow">Send</button>
+              <input disabled={!socket} type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder={socket ? "Type your message..." : "Waiting for connection / Login Required..."} className="flex-grow px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100 disabled:text-gray-400" />
+              <button disabled={!socket} type="submit" className="px-5 py-2 bg-purple-600 text-white font-semibold rounded-full hover:bg-purple-700 transition shadow disabled:bg-gray-400">Send</button>
             </form>
           </div>
         </footer>

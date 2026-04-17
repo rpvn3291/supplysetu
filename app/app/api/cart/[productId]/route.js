@@ -26,7 +26,7 @@ export async function DELETE(request, { params }) {
     const authorization = request.headers.get('authorization');
     if (!authorization) return NextResponse.json({ message: 'Auth header missing' }, { status: 401 });
 
-    const productId = params?.productId;
+    const { productId } = await params;
     if (!productId) return NextResponse.json({ message: 'productId is required' }, { status: 400 });
 
     const apiResponse = await fetch(`${cartBaseUrl}/api/cart/${encodeURIComponent(productId)}`, {

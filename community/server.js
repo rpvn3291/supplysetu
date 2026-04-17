@@ -34,12 +34,19 @@ const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || "http://localhost:300
 // --- Background Job for Market Expiry ---
 const checkMarketExpiry = async () => {
   try {
-    const expiredMarkets = await LiveMarket.find({
-      $expr: { $lt: [{ $add: ["$startTime", "$duration"] }, Date.now()] }
+    const allMarkets = await LiveMarket.find({});
+    const now = Date.now();
+    const expiredMarkets = allMarkets.filter(market => {
+        // Safe null handling + Date parsing
+        if (!market.startTime || !market.duration) return true;
+        const startMs = new Date(market.startTime).getTime();
+        return (startMs + market.duration) < now;
     });
+
     for (const market of expiredMarkets) {
       io.emit('market_closed', { marketId: market.marketId });
       await LiveMarket.findByIdAndDelete(market._id);
+      console.log(`Cleaned up expired market: ${market.marketId}`);
     }
   } catch (error) {
     console.error("Error checking market expiry:", error);
@@ -80,7 +87,7 @@ io.on('connection', async (socket) => {
     // --- Send active markets on connection ---
     const activeMarkets = await LiveMarket.find({});
     socket.emit('active_markets_list', activeMarkets);
-  } catch(e) {
+  } catch (e) {
     console.error(e);
   }
 
@@ -96,20 +103,20 @@ io.on('connection', async (socket) => {
         community = await new Community({ pincode, presidentId: socket.user.id }).save();
         console.log(`New community for pincode ${pincode}. President is ${socket.user.id}`);
       }
-      
-      const recentMessages = await Message.find({ pincode }).sort({ createdAt: -1 }).limit(50);
-      socket.emit('chat_history', recentMessages.reverse()); 
+
+      const recentMessages = await Message.find({ pincode }).sort({ createdAt: -1 }).limit(50).lean();
+      socket.emit('chat_history', recentMessages.reverse());
       socket.emit('community_info', { presidentId: community.presidentId });
 
-      const currentPoll = await Poll.findOne({ pincode });
+      const currentPoll = await Poll.findOne({ pincode }).lean();
       if (currentPoll) socket.emit('poll_update', currentPoll);
 
-      const currentBulkOrder = await BulkOrder.findOne({ pincode });
+      const currentBulkOrder = await BulkOrder.findOne({ pincode }).lean();
       if (currentBulkOrder) socket.emit('bulk_order_update', currentBulkOrder);
 
     } catch (error) {
-        console.error(`Error joining room ${pincode}:`, error);
-        socket.emit('error_message', { message: 'Failed to join community room.' });
+      console.error(`Error joining room ${pincode}:`, error);
+      socket.emit('error_message', { message: 'Failed to join community room.' });
     }
   });
 
@@ -128,8 +135,8 @@ io.on('connection', async (socket) => {
         isPresident: community?.presidentId === socket.user.id,
       });
     } catch (error) {
-        console.error(`Error sending message:`, error);
-        socket.emit('error_message', { message: 'Failed to send message.' });
+      console.error(`Error sending message:`, error);
+      socket.emit('error_message', { message: 'Failed to send message.' });
     }
   });
 
@@ -141,19 +148,19 @@ io.on('connection', async (socket) => {
       if (community?.presidentId !== socket.user.id) {
         return socket.emit('poll_error', { message: 'Only the community president can start a poll.' });
       }
-      
+
       const existingPoll = await Poll.findOne({ pincode });
       if (existingPoll) {
-         return socket.emit('poll_error', { message: 'A poll is already active in this community.' });
+        return socket.emit('poll_error', { message: 'A poll is already active in this community.' });
       }
-      
+
       const optionsMap = options.reduce((acc, option) => ({ ...acc, [option]: 0 }), {});
       const newPoll = await Poll.create({ pincode, question, options: optionsMap, voters: [] });
-      
+
       io.to(roomName).emit('new_poll', newPoll);
     } catch (error) {
-       console.error(`Error starting poll:`, error);
-       socket.emit('poll_error', { message: 'Failed to start poll.' });
+      console.error(`Error starting poll:`, error);
+      socket.emit('poll_error', { message: 'Failed to start poll.' });
     }
   });
 
@@ -168,42 +175,42 @@ io.on('connection', async (socket) => {
       }
 
       if (poll.options.get(option) === undefined) {
-         return socket.emit('poll_error', { message: 'Invalid option.' });
+        return socket.emit('poll_error', { message: 'Invalid option.' });
       }
 
       poll.options.set(option, poll.options.get(option) + 1);
       poll.voters.push(socket.user.id);
       await poll.save();
 
-      io.to(roomName).emit('poll_update', poll); 
-    } catch(error) {
+      io.to(roomName).emit('poll_update', poll.toObject());
+    } catch (error) {
       console.error('Error voting in poll:', error);
     }
   });
 
   // --- Bulk Order Logic ---
-   socket.on('start_bulk_order', async ({ pincode, productId, productName, supplierId }) => {
+  socket.on('start_bulk_order', async ({ pincode, productId, productName, supplierId }) => {
     const roomName = `pincode-${pincode}`;
     try {
-        const community = await Community.findOne({ pincode });
-        if (community?.presidentId !== socket.user.id) {
-            return socket.emit('bulk_order_error', { message: 'Only the community president can start a bulk order.' });
-        }
+      const community = await Community.findOne({ pincode });
+      if (community?.presidentId !== socket.user.id) {
+        return socket.emit('bulk_order_error', { message: 'Only the community president can start a bulk order.' });
+      }
 
-        const existingOrder = await BulkOrder.findOne({ pincode });
-        if (existingOrder) {
-             return socket.emit('bulk_order_error', { message: 'A bulk order is already active in this community.' });
-        }
-        
-        const newOrder = await BulkOrder.create({ pincode, productId, productName, supplierId, initiator: socket.user.id, commitments: {}, total: 0 });
-        io.to(roomName).emit('new_bulk_order', newOrder);
+      const existingOrder = await BulkOrder.findOne({ pincode });
+      if (existingOrder) {
+        return socket.emit('bulk_order_error', { message: 'A bulk order is already active in this community.' });
+      }
+
+      const newOrder = await BulkOrder.create({ pincode, productId, productName, supplierId, initiator: socket.user.id, commitments: {}, total: 0 });
+      io.to(roomName).emit('new_bulk_order', newOrder);
     } catch (error) {
-        console.error(`Error starting bulk order:`, error);
-        socket.emit('bulk_order_error', { message: 'Failed to start bulk order.' });
+      console.error(`Error starting bulk order:`, error);
+      socket.emit('bulk_order_error', { message: 'Failed to start bulk order.' });
     }
   });
 
-   socket.on('commit_to_bulk_order', async ({ pincode, quantity }) => {
+  socket.on('commit_to_bulk_order', async ({ pincode, quantity }) => {
     const roomName = `pincode-${pincode}`;
     const userCommitment = parseInt(quantity, 10);
 
@@ -216,7 +223,7 @@ io.on('connection', async (socket) => {
       const oldQuantity = bulkOrder.commitments.get(socket.user.id) || 0;
       bulkOrder.commitments.set(socket.user.id, userCommitment);
       bulkOrder.total = (bulkOrder.total - oldQuantity) + userCommitment;
-      
+
       await bulkOrder.save();
       io.to(roomName).emit('bulk_order_update', bulkOrder);
     } catch (error) {
@@ -224,53 +231,55 @@ io.on('connection', async (socket) => {
     }
   });
 
-   socket.on('finalize_bulk_order', async ({ pincode, pricePerUnit }) => {
+  socket.on('finalize_bulk_order', async ({ pincode, pricePerUnit }) => {
     const roomName = `pincode-${pincode}`;
-    
+
     try {
-        const community = await Community.findOne({ pincode });
-        const bulkOrder = await BulkOrder.findOne({ pincode });
+      const community = await Community.findOne({ pincode });
+      const bulkOrder = await BulkOrder.findOne({ pincode });
 
-        if (bulkOrder && community?.presidentId === socket.user.id) {
-            console.log("Finalizing bulk order from DB...");
-            
-            const orderPayload = {
-              orderItems: [{ productId: bulkOrder.productId, quantity: bulkOrder.total, price: pricePerUnit || 100 }],
-              totalPrice: (pricePerUnit || 100) * bulkOrder.total,
-              supplierId: bulkOrder.supplierId || "unknown-supplier", 
-              vendorLocationLat: 17.3850, // Default lat (e.g. Hyderabad)
-              vendorLocationLon: 78.4867
-            };
+      if (bulkOrder && community?.presidentId === socket.user.id) {
+        console.log("Finalizing bulk order from DB...");
 
-            const orderResponse = await global.fetch(`${ORDER_SERVICE_URL}/api/orders`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${socket.token}`
-              },
-              body: JSON.stringify(orderPayload)
-            });
+        const orderPayload = {
+          orderItems: [{ productId: bulkOrder.productId, quantity: bulkOrder.total, price: pricePerUnit || 100, unitOfMeasure: "unit" }],
+          totalPrice: (pricePerUnit || 100) * bulkOrder.total,
+          supplierId: bulkOrder.supplierId || "unknown-supplier",
+          vendorLocationLat: 17.3850, // Default lat (e.g. Hyderabad)
+          vendorLocationLon: 78.4867
+        };
 
-            if(!orderResponse.ok) {
-              const err = await orderResponse.json();
-              return socket.emit('bulk_order_error', { message: `Order submission failed: ${err.message}` });
-            }
+        const safeUrl = ORDER_SERVICE_URL.replace('localhost', '127.0.0.1');
 
-            await BulkOrder.findOneAndDelete({ pincode });
-            io.to(roomName).emit('bulk_order_finalized', { message: `Bulk order for ${bulkOrder.productName} finalized successfully!` });
-            
-        } else {
-             socket.emit('bulk_order_error', { message: 'Only the president can finalize the order or bulk order not found.' });
+        const orderResponse = await global.fetch(`${safeUrl}/api/orders`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${socket.token}`
+          },
+          body: JSON.stringify(orderPayload)
+        });
+
+        if (!orderResponse.ok) {
+          const err = await orderResponse.json();
+          return socket.emit('bulk_order_error', { message: `Order submission failed: ${err.message}` });
         }
-    } catch(error){
-         console.error(`Error finalizing bulk order:`, error);
-         socket.emit('bulk_order_error', { message: 'Failed to finalize bulk order.' });
+
+        await BulkOrder.findOneAndDelete({ pincode });
+        io.to(roomName).emit('bulk_order_finalized', { message: `Bulk order for ${bulkOrder.productName} finalized successfully!` });
+
+      } else {
+        socket.emit('bulk_order_error', { message: 'Only the president can finalize the order or bulk order not found.' });
+      }
+    } catch (error) {
+      console.error(`Error finalizing bulk order:`, error);
+      socket.emit('bulk_order_error', { message: 'Failed to finalize bulk order.' });
     }
   });
 
-  // --- Live Market Logic (Live Selling Model) ---
-  socket.on('start_market', async ({ productId, productName, price, stockQuantity }) => {
-    const marketId = socket.user.id; 
+  // --- Live Market Logic (Flash Sale Model) ---
+  socket.on('start_market', async ({ title, products }) => {
+    const marketId = socket.user.id;
 
     // Time Check (IST)
     const now = new Date();
@@ -282,7 +291,7 @@ io.on('connection', async (socket) => {
     if (socket.user.role !== 'SUPPLIER') {
       return socket.emit('market_error', { message: 'Only suppliers can start a market.' });
     }
-    
+
     try {
       const existingMarket = await LiveMarket.findOne({ marketId });
       if (existingMarket) {
@@ -293,36 +302,34 @@ io.on('connection', async (socket) => {
 
       const newMarket = await LiveMarket.create({
         marketId,
-        productId,
-        productName,
+        title: title || "Exclusive Flash Deals",
         supplierId: socket.user.id,
-        price: parseFloat(price) || 0,
-        stockQuantity: parseInt(stockQuantity, 10) || 0,
+        products: products || [],
         startTime: Date.now(),
         duration: MARKET_DURATION_MS,
         purchases: []
       });
 
-      io.emit('new_market_started', newMarket); 
-      console.log(`Market ${marketId} started by supplier ${socket.user.id} for ${productName}`);
+      io.emit('new_market_started', newMarket.toObject ? newMarket.toObject() : newMarket);
+      console.log(`Market ${marketId} started by supplier ${socket.user.id} with ${products ? products.length : 0} products`);
     } catch (error) {
-       console.error(error);
-       socket.emit('market_error', { message: 'Failed to start live market.' });
+      console.error(error);
+      socket.emit('market_error', { message: 'Failed to start live market.' });
     }
   });
 
   socket.on('join_market', async (marketId) => {
     console.log(`Socket ${socket.id} requesting to join market: ${marketId}`);
     try {
-      const market = await LiveMarket.findOne({ marketId });
+      const market = await LiveMarket.findOne({ marketId }).lean();
       console.log(`Market findOne result for ${marketId}:`, market ? 'Found' : 'Not Found');
-      if(market) {
-          const marketRoom = `market-${marketId}`;
-          socket.join(marketRoom);
-          console.log(`User ${socket.id} joined market room: ${marketRoom}`);
-          socket.emit('market_update', market);
+      if (market) {
+        const marketRoom = `market-${marketId}`;
+        socket.join(marketRoom);
+        console.log(`User ${socket.id} joined market room: ${marketRoom}`);
+        socket.emit('market_update', market);
       } else {
-          socket.emit('market_error', { message: 'Market not found or has already ended.' });
+        socket.emit('market_error', { message: 'Market not found or has already ended.' });
       }
     } catch (error) {
       console.error(`Error finding market ${marketId}:`, error);
@@ -331,7 +338,7 @@ io.on('connection', async (socket) => {
   });
 
   // Vendors purchasing items "buy now"
-  socket.on('buy_product', async ({ marketId, quantity }) => {
+  socket.on('buy_product', async ({ marketId, productId, quantity }) => {
     const marketRoom = `market-${marketId}`;
     const buyQuantity = parseInt(quantity, 10);
 
@@ -343,20 +350,25 @@ io.on('connection', async (socket) => {
       const market = await LiveMarket.findOne({ marketId });
       if (!market) return socket.emit('market_error', { message: 'Market has ended.' });
 
-      if (market.stockQuantity < buyQuantity) {
-         return socket.emit('market_error', { message: `Only ${market.stockQuantity} left in stock.` });
+      const targetProduct = market.products.find(p => p.productId === productId);
+      if (!targetProduct) return socket.emit('market_error', { message: 'Product not found in this flash deal.' });
+
+      if (targetProduct.stockQuantity < buyQuantity) {
+        return socket.emit('market_error', { message: `Only ${targetProduct.stockQuantity} left for ${targetProduct.productName}.` });
       }
 
       // Hit Order Service directly!
       const orderPayload = {
-        orderItems: [{ productId: market.productId, quantity: buyQuantity, price: market.price }],
-        totalPrice: market.price * buyQuantity,
+        orderItems: [{ productId: targetProduct.productId, quantity: buyQuantity, price: targetProduct.price, unitOfMeasure: "unit" }],
+        totalPrice: targetProduct.price * buyQuantity,
         supplierId: market.supplierId,
         vendorLocationLat: 17.3850, // Default lat (e.g. Hyderabad) for quick live purchases
         vendorLocationLon: 78.4867
       };
 
-      const orderResponse = await global.fetch(`${ORDER_SERVICE_URL}/api/orders`, {
+      const safeUrl = ORDER_SERVICE_URL.replace('localhost', '127.0.0.1');
+
+      const orderResponse = await global.fetch(`${safeUrl}/api/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -366,24 +378,26 @@ io.on('connection', async (socket) => {
       });
 
       if (!orderResponse.ok) {
-         const err = await orderResponse.json();
-         return socket.emit('market_error', { message: `Order Service Failed: ${err.message}` });
+        const err = await orderResponse.json();
+        return socket.emit('market_error', { message: `Order Service Failed: ${err.message}` });
       }
 
       // Successfully ordered! Deduct stock
-      market.stockQuantity -= buyQuantity;
-      market.purchases.push({ userId: socket.user.id, userEmail: socket.user.email, quantity: buyQuantity });
+      targetProduct.stockQuantity -= buyQuantity;
+      market.purchases.push({ productId: targetProduct.productId, userId: socket.user.id, userEmail: socket.user.email, quantity: buyQuantity });
       await market.save();
 
       io.to(marketRoom).emit('market_purchase', {
-        message: `${buyQuantity}x purchased by ${socket.user.email || socket.user.id.substring(0, 6)}!`,
-        remainingStock: market.stockQuantity
+        message: `${buyQuantity}x ${targetProduct.productName} purchased by ${socket.user.email || socket.user.id.substring(0, 6)}!`,
+        remainingStock: targetProduct.stockQuantity,
+        productId: targetProduct.productId
       });
-      io.to(marketRoom).emit('market_update', market);
+      io.to(marketRoom).emit('market_update', market.toObject ? market.toObject() : market);
 
-      // Auto-close if sold out
-      if (market.stockQuantity <= 0) {
-        console.log(`Market ${marketId} sold out and closed.`);
+      // Auto-close if EVERYTHING is sold out
+      const allSoldOut = market.products.every(p => p.stockQuantity <= 0);
+      if (allSoldOut) {
+        console.log(`Market ${marketId} completely sold out and closed.`);
         io.emit('market_closed', { marketId });
         await LiveMarket.findOneAndDelete({ marketId });
       }

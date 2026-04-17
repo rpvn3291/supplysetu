@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 // The 'params' object is automatically passed by Next.js for dynamic routes.
 export async function GET(request, { params }) {
   try {
-    const { id } = params; // Extract the product ID from the URL
+    const { id } = await params; // Extract the product ID from the URL
 
     // 1. Forward the request to your deployed Product microservice.
     const apiResponse = await fetch(`${process.env.PRODUCT_API_URL}/api/products/${id}`, {

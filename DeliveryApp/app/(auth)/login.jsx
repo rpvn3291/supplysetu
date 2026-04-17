@@ -6,7 +6,7 @@ import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 
 // Make sure to set your actual Auth Microservice IP
-const API_URL = 'https://supplysetu-lzxv.onrender.com/api/auth'; 
+const API_URL = process.env.EXPO_PUBLIC_AUTH_API_URL; 
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');

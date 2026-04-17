@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { api, SOCKET_URL } from '../../services/api';
+import { api, SOCKET_URL, ORDER_SERVICE_URL } from '../../services/api';
 import io from 'socket.io-client';
 import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
@@ -11,69 +11,84 @@ let globalLocationTimer = null;
 let currentlyTrackingOrderId = null;
 
 const startGlobalTracking = async (orderId, onActive) => {
-  if (currentlyTrackingOrderId === orderId) {
+  if (currentlyTrackingOrderId === orderId && globalSocket?.connected) {
     onActive(true);
     return;
   }
 
-  if (globalSocket || globalLocationTimer) {
-    stopGlobalTracking();
-  }
+  // Cleanup any existing instances
+  stopGlobalTracking();
 
-  let { status } = await Location.requestForegroundPermissionsAsync();
-  if (status !== 'granted') {
-    Alert.alert('Permission Denied', 'Location permission is required.');
+  // 1. Request Permissions (Foreground first, then Background)
+  let { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
+  if (foregroundStatus !== 'granted') {
+    Alert.alert('Permission Denied', 'Foreground location permission is required.');
     return;
   }
 
+  // Background permission is optional but highly recommended for reliability
+  try {
+    const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+    if (backgroundStatus !== 'granted') {
+       console.log('Background location permission not granted. Tracking may stop when app is minimized.');
+    }
+  } catch (e) {
+    console.log('Background permission request error:', e);
+  }
+
   const token = await SecureStore.getItemAsync('driverToken');
+  if (!token) {
+    Alert.alert('Auth Error', 'No driver token found. Please relogin.');
+    return;
+  }
+
+  // 2. Setup Socket
   globalSocket = io(SOCKET_URL, { 
     auth: { token }, 
     forceNew: true,
-    transports: ['websocket'] 
+    transports: ['websocket'],
+    reconnection: true,
+    reconnectionAttempts: 10
   });
   
   globalSocket.on('connect_error', (err) => {
     console.log('Delivery socket connect_error:', err.message);
-    Alert.alert('Tracker Error', err.message);
+    // Silent fail in background is better than constant alerts, 
+    // but useful for debugging in foreground.
   });
 
-  globalSocket.on('connect', async () => {
+  globalSocket.on('connect', () => {
     console.log('Global tracker connected for order', orderId);
     currentlyTrackingOrderId = orderId;
-    onActive(true);
     
-    try {
-      // Use watchPositionAsync instead of manual setInterval.
-      // This is far more stable on Android and avoids JS thread locking.
-      globalLocationTimer = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 3000,
-          distanceInterval: 1
-        },
-        (loc) => {
-          const fakeLatOff = (Math.random() - 0.5) * 0.0001;
-          const fakeLonOff = (Math.random() - 0.5) * 0.0001;
-
-          if (globalSocket) {
-             globalSocket.emit('driver_location_update', { 
-               orderId, 
-               latitude: loc.coords.latitude + fakeLatOff, 
-               longitude: loc.coords.longitude + fakeLonOff 
-             });
-          }
-        }
-      );
-    } catch (e) {
-      console.log("GPS Watch Error:", e);
-    }
+    // Explicitly join the room so we can verify the ID matches the Vendor perfectly in the server logs
+    globalSocket.emit('join_tracking_room', orderId);
+    
+    onActive(true);
   });
+
+  // 3. Start Location Watcher (Independent of socket connect event to ensure it starts immediately)
+    globalLocationTimer = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.Highest,
+        timeInterval: 5000,
+        distanceInterval: 0
+      },
+      (loc) => {
+        if (globalSocket && globalSocket.connected) {
+           globalSocket.emit('driver_location_update', { 
+             orderId, 
+             latitude: loc.coords.latitude, 
+             longitude: loc.coords.longitude 
+           });
+        }
+      }
+    );
 };
 
 const stopGlobalTracking = () => {
   if (globalLocationTimer) {
-     globalLocationTimer.remove(); // watchPositionAsync returns an object with a remove() method
+     globalLocationTimer.remove(); // watchPositionAsync returns an object with a remove method
      globalLocationTimer = null;
   }
   if (globalSocket) globalSocket.disconnect();

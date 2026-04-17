@@ -17,7 +17,7 @@ const haversineDistance = (coords1, coords2) => {
   return R * c;
 };
 
-const SOCKET_URL = 'https://community-4v39.onrender.com'; // Community Service port
+const SOCKET_URL = process.env.EXPO_PUBLIC_COMMUNITY_API_URL;
 
 /**
  * ORDER DETAIL SCREEN
@@ -59,7 +59,9 @@ export default function OrderDetailScreen({ route, navigation }) {
         const _socket = io(SOCKET_URL, { 
           auth: { token }, 
           forceNew: true,
-          transports: ['websocket']
+          transports: ['websocket'],
+          reconnection: true,
+          reconnectionAttempts: 10
         });
 
         _socket.on('connect_error', (err) => {

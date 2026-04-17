@@ -36,12 +36,34 @@ export default function CommunityChatScreen() {
     
     // Attempt decoding token to get user ID
     try {
-        const decoded = decodeToken ? decodeToken(token) : JSON.parse(atob(token.split('.')[1]));
+        let decoded;
+        if (decodeToken) {
+            decoded = decodeToken(token);
+        } else {
+            // Simplified Base64 decode for React Native
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const pad = base64.length % 4;
+            const padded = pad ? base64 + new Array(5 - pad).join('=') : base64;
+            
+            // Fast polyfill for atob
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+            let str = '';
+            let i = 0;
+            for (
+              let bc = 0, bs, buffer, idx = 0;
+              buffer = padded.charAt(idx++);
+              ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer,
+                bc++ % 4) ? str += String.fromCharCode(255 & bs >> (-2 * bc & 6)) : 0
+            ) {
+              buffer = chars.indexOf(buffer);
+            }
+            decoded = JSON.parse(str);
+        }
         if (decoded && decoded.id) setMyUserId(decoded.id);
-    } catch(e) {}
+    } catch(e) { console.log('Decode error:', e); }
 
-    const COMMUNITY_URL = 'https://community-4v39.onrender.com'; 
-    const newSocket = io(COMMUNITY_URL, {
+    const COMMUNITY_URL = process.env.EXPO_PUBLIC_COMMUNITY_API_URL;    const newSocket = io(COMMUNITY_URL, {
       auth: { token }
     });
     setSocket(newSocket);
@@ -51,9 +73,9 @@ export default function CommunityChatScreen() {
     });
 
     newSocket.on('community_info', (data) => setPresidentId(data.presidentId));
-    newSocket.on('chat_history', (history) => setMessages(history));
+    newSocket.on('chat_history', (history) => setMessages(Array.isArray(history) ? history : []));
     newSocket.on('receive_message', (msg) => {
-        setMessages(prev => [...prev, msg]);
+        setMessages(prev => Array.isArray(prev) ? [...prev, msg] : [msg]);
         setTimeout(() => flatListRef.current?.scrollToEnd({animated: true}), 100);
     });
 
@@ -158,8 +180,9 @@ export default function CommunityChatScreen() {
 
       <FlatList
         ref={flatListRef}
+        style={{ flex: 1 }}
         data={messages}
-        keyExtractor={(item, idx) => item._id || idx.toString()}
+        keyExtractor={(item, idx) => item._id ? item._id.toString() : idx.toString()}
         contentContainerStyle={{ padding: 15 }}
         ListHeaderComponent={() => (
             <View>
@@ -167,7 +190,7 @@ export default function CommunityChatScreen() {
                 {activePoll && (
                     <View style={styles.widgetCard}>
                         <Text style={styles.widgetTitle}>📊 Community Poll: {activePoll.question}</Text>
-                        {Object.keys(activePoll.options).map(key => (
+                        {Object.keys(activePoll.options || {}).map(key => (
                             <TouchableOpacity key={key} style={styles.optionBtn} onPress={() => handleVote(key)}>
                                 <Text style={styles.optionTxt}>{key}</Text>
                                 <Text style={styles.voteCount}>{activePoll.options[key]} votes</Text>

@@ -7,8 +7,7 @@ import * as SecureStore from 'expo-secure-store';
  */
 
 // Production Gateway URL
-const BASE_URL = "https://supplysetu-lzxv.onrender.com/api"; 
-
+export const BASE_URL = process.env.EXPO_PUBLIC_BASE_API_URL;
 /*
 // Local Development logic (commented out for now as requested)
 import Constants from 'expo-constants';

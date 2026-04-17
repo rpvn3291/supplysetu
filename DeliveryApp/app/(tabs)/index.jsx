@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { api } from '../../services/api';
+import { AuthContext } from '../../context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function DeliveryHomeScreen() {
+  const { logout } = useContext(AuthContext);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -44,8 +47,15 @@ export default function DeliveryHomeScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Delivery Dashboard</Text>
-        <Text style={styles.subtitle}>Manage your delivery requests</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View>
+            <Text style={styles.title}>Delivery Dashboard</Text>
+            <Text style={styles.subtitle}>Manage your delivery requests</Text>
+          </View>
+          <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
+            <Ionicons name="log-out-outline" size={24} color="#ef4444" />
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.tabContainer}>
           <TouchableOpacity 
@@ -113,5 +123,6 @@ const styles = StyleSheet.create({
   tabBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 6 },
   activeTabBtn: { backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   tabText: { color: '#64748b', fontWeight: '600' },
-  activeTabText: { color: '#2563eb', fontWeight: 'bold' }
+  activeTabText: { color: '#2563eb', fontWeight: 'bold' },
+  logoutBtn: { padding: 8, backgroundColor: '#fee2e2', borderRadius: 10 },
 });

@@ -166,22 +166,6 @@ export default function HomePage() {
               colorClass="border-blue-500"
               iconSvg={null} // Replace null with actual SVG code later
             />
-            <ActionCard
-              title="Community Hub"
-              description="Connect with fellow vendors in your pincode! Share tips, ask questions, and explore group buying."
-              linkText="Join Pincode Chat"
-              linkHref={ROUTES.COMMUNITY}
-              colorClass="border-purple-500"
-              iconSvg={null} // Replace null with actual SVG code later
-            />
-            <ActionCard
-              title="Live Market Deals"
-              description="Don't miss out! Grab limited-time deals directly from suppliers in fast-paced, real-time events."
-              linkText="Find Active Markets"
-              linkHref={ROUTES.MARKETS}
-              colorClass="border-teal-500"
-              iconSvg={null} // Replace null with actual SVG code later
-            />
           </div>
         )}
 

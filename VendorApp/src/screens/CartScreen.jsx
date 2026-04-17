@@ -1,7 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { CartContext } from '../context/CartContext';
-import { api } from '../services/api';
+import { api, BASE_URL } from '../services/api';
 import * as WebBrowser from 'expo-web-browser';
 import * as SecureStore from 'expo-secure-store';
 
@@ -41,7 +41,7 @@ export default function CartScreen() {
             // Build the URL for the external secure checkout wrapper
             const encodedOrderData = encodeURIComponent(JSON.stringify(orderData));
             // Assuming the Vendor Web App runs on the standard local IP/Port 3000
-            const NEXT_JS_URL = api.client.defaults.baseURL.replace('3003/api', '3000'); 
+            const NEXT_JS_URL = BASE_URL.replace('/api', ''); 
             const checkoutUrl = `${NEXT_JS_URL}/mobile-checkout?amount=${total}&token=${token}&orderData=${encodedOrderData}`;
             
             // Open the Expo secure browser
